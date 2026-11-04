@@ -81,6 +81,8 @@ export default defineConfig({
         "packages/react/src/**": threshold,
         // aggregated over all plugins (vitest thresholds are per glob, not per matched directory)
         "plugins/*/src/**": threshold,
+        "plugins/claude-code/src/**": threshold,
+        "plugins/storage/src/**": threshold,
       },
     },
   },

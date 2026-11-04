@@ -69,7 +69,7 @@ describe("sdk end to end", () => {
 
   it("sdk exports only the public surface", async () => {
     expect(Object.keys(await import("../src/index.js")).sort()).toEqual(
-      ["BeforeInstallHook", "LoomError", "PluginsRef", "attach", "createExtension", "createHook", "createServiceRef", "definePlugin", "tapRemote"].sort(),
+      ["BeforeInstallHook", "LoomError", "PluginsRef", "attach", "createExtension", "createHook", "createServiceRef", "definePlugin", "provideRemoteServices", "tapRemote"].sort(),
     );
   });
 });

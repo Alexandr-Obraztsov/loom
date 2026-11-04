@@ -189,6 +189,9 @@ export interface PluginsService {
     uninstall(id: string): Promise<ReconcileDiff>;
 }
 
+// @public
+export function provideRemoteServices(ctx: PluginContext, endpoint: RpcEndpoint, refs: readonly ServiceRef<object>[]): void;
+
 // @public (undocumented)
 export interface ReconcileDiff {
     // (undocumented)
