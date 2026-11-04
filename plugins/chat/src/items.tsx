@@ -18,6 +18,8 @@ const TOOL_STATUS: Record<ToolItem["status"], string> = {
 /** Что элементу-разрешению нужно от окружения экрана. */
 export interface ItemActions {
   respond(itemId: string, optionId: string): void;
+  /** id элемента, чей последний ответ не дошёл (показ в карточке разрешения). */
+  failedRespondItemId: string | undefined;
 }
 
 /** Дефолтный рендер элемента; fallback хука chat.renderItem. */
@@ -61,6 +63,9 @@ function PermissionItemView(props: { item: PermissionItem; actions: ItemActions 
   return (
     <div data-permission="pending">
       <p style={PRE_WRAP}>{item.title}</p>
+      {actions.failedRespondItemId === item.id ? (
+        <p role="alert">Не удалось отправить ответ</p>
+      ) : null}
       {item.options.map((option) => (
         <button
           key={option.optionId}

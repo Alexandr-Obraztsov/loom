@@ -27,9 +27,9 @@ const permission = (id: string, resolved?: string): SessionItem => ({
 });
 
 describe("chat: разрешение и ошибки", () => {
-  it("кнопки разрешения вызывают respondPermission с optionId, затем виден исход", async () => {
+  it("потерянный отклик разрешения виден, карточка жива; повтор доходит", async () => {
     const sessions = new FakeSessions();
-    sessions.failRespondTimes = 1; // первый отклик теряется — молча, без краха
+    sessions.failRespondTimes = 1; // первый отклик теряется
     const kernel = await bootChat(sessions);
     renderApp(kernel);
     await applyUpdate(sessions, (s) => ({ ...s, items: [...s.items, permission("p1")] }));
@@ -39,6 +39,13 @@ describe("chat: разрешение и ошибки", () => {
       await Promise.resolve();
     });
     expect(sessions.responses).toEqual([["s1", "p1", "allow"]]);
+    // отказ виден, разрешение всё ещё ждёт ответа
+    expect(await screen.findByText("Не удалось отправить ответ")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Разрешить" })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Разрешить" }));
+      await Promise.resolve();
+    });
     expect(await screen.findByText("Выбрано: Разрешить")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Разрешить" })).toBeNull();
   });

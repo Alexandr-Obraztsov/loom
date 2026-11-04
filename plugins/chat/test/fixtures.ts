@@ -10,6 +10,8 @@ export class FakeSessions implements Sessions {
   waitCalls = 0;
   /** Сколько ближайших вызовов waitUpdates отклонять (транспорт лёг). */
   failWaitTimes = 0;
+  /** Когда задан — waitUpdates зависает и отклоняется только по rejectPendingWait(). */
+  failWaitOnDemand = false;
   /** Сколько ближайших respondPermission отклонять (потеря отклика). */
   failRespondTimes = 0;
   /** Когда задано — ensure отклоняется этим (агент не стартовал). */
@@ -18,6 +20,7 @@ export class FakeSessions implements Sessions {
   private snapshot: SessionSnapshot;
   private readonly waiters = new Set<() => void>();
   private ensureGate: Promise<void> | undefined;
+  private waitRejector: ((e: Error) => void) | undefined;
 
   constructor(readonly sessionId = "s1") {
     this.snapshot = { sessionId, seq: 0, items: [], busy: false };
@@ -55,8 +58,20 @@ export class FakeSessions implements Sessions {
     return Promise.resolve();
   }
 
+  /** Отклоняет зависший waitUpdates (см. failWaitOnDemand). */
+  rejectPendingWait(): void {
+    const reject = this.waitRejector;
+    this.waitRejector = undefined;
+    if (reject !== undefined) reject(new Error("rpc недоступен"));
+  }
+
+  /** Отклонённый respondPermission НЕ разрешает элемент — как настоящий бэкенд. */
   respondPermission(sessionId: string, itemId: string, optionId: string | null): Promise<void> {
     this.responses.push([sessionId, itemId, optionId]);
+    if (this.failRespondTimes > 0) {
+      this.failRespondTimes -= 1;
+      return Promise.reject(new Error("нет связи"));
+    }
     this.mutate((s) => ({
       ...s,
       items: s.items.map((i) =>
@@ -65,10 +80,6 @@ export class FakeSessions implements Sessions {
           : i,
       ),
     }));
-    if (this.failRespondTimes > 0) {
-      this.failRespondTimes -= 1;
-      return Promise.reject(new Error("нет связи"));
-    }
     return Promise.resolve();
   }
 
@@ -77,6 +88,11 @@ export class FakeSessions implements Sessions {
     if (this.failWaitTimes > 0) {
       this.failWaitTimes -= 1;
       return Promise.reject(new Error("rpc недоступен"));
+    }
+    if (this.failWaitOnDemand) {
+      return new Promise((_, reject) => {
+        this.waitRejector = reject;
+      });
     }
     if (this.snapshot.seq > afterSeq) return Promise.resolve(this.snapshot);
     return new Promise((resolve) => {

@@ -70,6 +70,8 @@ async function runSession(deps: SessionLoopDeps): Promise<void> {
     try {
       next = await deps.sessions.waitUpdates(first.sessionId, seq);
     } catch {
+      // сначала выход: отказ, пришедший после размонтирования, не трогает экран
+      if (deps.isDisposed()) return;
       deps.onOffline(true);
       await sleep(backoffMs(failures));
       failures += 1;
@@ -82,6 +84,23 @@ async function runSession(deps: SessionLoopDeps): Promise<void> {
     deps.driver.update(next);
     seq = next.seq;
   }
+}
+
+/** Значение-узел входа расширения (не массив и не undefined). */
+function isNode(value: unknown): value is ResolvedNode {
+  return typeof value === "object" && value !== null && "id" in value && "pluginId" in value;
+}
+
+/** Одиночный вход расширения; неподходящее значение игнорируется. */
+function singleInput(node: ResolvedNode, input: string): ResolvedNode | undefined {
+  const value: unknown = node.inputs[input];
+  return isNode(value) ? value : undefined;
+}
+
+/** Многократный вход расширения; неподходящее значение считается пустым. */
+function multiInput(node: ResolvedNode, input: string): readonly ResolvedNode[] {
+  const value: unknown = node.inputs[input];
+  return Array.isArray(value) ? (value as readonly ResolvedNode[]) : [];
 }
 
 /** Порог «пользователь у низа»: дальше от низа автопрокрутка выключена. */
@@ -101,16 +120,20 @@ type RunItem = (ctx: RenderItemContext, fallback: (c: RenderItemContext) => Reac
 function TimelineItems(props: { snapshot: SessionSnapshot; runItem: RunItem; endRef: Ref<HTMLDivElement> }): ReactNode {
   const { snapshot, runItem, endRef } = props;
   const sessions = useService(SessionsRef);
+  const [failedRespondItemId, setFailedRespondItemId] = useState<string | undefined>(undefined);
   const respond = (itemId: string, optionId: string): void => {
-    // потеря отклика видна как сбой ближайшего waitUpdates (баннер), поэтому глотаем
-    void sessions.respondPermission(snapshot.sessionId, itemId, optionId).catch(() => undefined);
+    setFailedRespondItemId(undefined);
+    // отказ виден в самой карточке: разрешение остаётся ждать ответа, повтор доступен
+    void sessions.respondPermission(snapshot.sessionId, itemId, optionId).catch(() => {
+      setFailedRespondItemId(itemId);
+    });
   };
   return (
     <>
       <ul>
         {snapshot.items.map((item) => (
           <li key={item.id} data-item={item.id} data-kind={item.kind}>
-            {runItem({ item }, (c) => renderDefaultItem(c.item, { respond }))}
+            {runItem({ item }, (c) => renderDefaultItem(c.item, { respond, failedRespondItemId }))}
           </li>
         ))}
       </ul>
@@ -132,8 +155,11 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
   const endRef = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
 
-  // прокси сервисов живые (ведут к текущей реализации), но их идентичность
-  // меняется от рендера к рендеру — цикл опроса живёт ровно пока смонтирован экран
+  // Прокси сервисов живые (ведут к текущей реализации), но их идентичность меняется
+  // от рендера к рендеру — цикл опроса живёт ровно пока смонтирован экран.
+  // Зависший waitUpdates при размонтировании не отменяется (long-poll): цикл просто
+  // выйдет по флагу, когда ответ придёт. В StrictMode эффект монтируется дважды —
+  // первый цикл выходит на ближайшей проверке, ensure идемпотентен (сессия на окно одна).
   useEffect(() => {
     let disposed = false;
     void runSession({
@@ -160,8 +186,6 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
     stick.current = isPinned(e.currentTarget);
   };
 
-  const inline = node.inputs.inline as readonly ResolvedNode[] | undefined;
-  const composer = node.inputs.composer as ResolvedNode | undefined;
   return (
     <section aria-label="Чат">
       {offline ? <div role="alert">Не удалось получить обновления</div> : null}
@@ -174,16 +198,16 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
             <li data-item="fatal">
               {renderDefaultItem(
                 { kind: "error", id: "fatal", message: fatal },
-                { respond: () => undefined },
+                { respond: () => undefined, failedRespondItemId: undefined },
               )}
             </li>
           </ul>
         ) : null}
       </div>
-      {inline?.map((n) => (
+      {multiInput(node, "inline").map((n) => (
         <Render key={n.id} node={n} />
       ))}
-      <Render node={composer} />
+      <Render node={singleInput(node, "composer")} />
     </section>
   );
 }

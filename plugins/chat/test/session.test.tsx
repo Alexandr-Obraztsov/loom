@@ -81,6 +81,19 @@ describe("chat: остановка", () => {
     expect(kernel.services.use(ChatSessionRef).snapshot()).toBeUndefined();
   });
 
+  it("отказ waitUpdates после размонтирования не будит цикл", async () => {
+    const sessions = new FakeSessions();
+    sessions.failWaitOnDemand = true;
+    const kernel = await bootChat(sessions);
+    const view = renderApp(kernel);
+    await settle();
+    expect(sessions.waitCalls).toBe(1); // опрос завис
+    view.unmount();
+    sessions.rejectPendingWait();
+    await settle();
+    expect(sessions.waitCalls).toBe(1); // цикл вышел, повтора нет
+  });
+
   it("размонтирование во время задержки повтора останавливает цикл", async () => {
     vi.useFakeTimers();
     try {
