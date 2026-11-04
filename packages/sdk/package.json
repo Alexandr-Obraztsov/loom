@@ -14,9 +14,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "echo \"no benchmarks yet\""
+    "bench": "echo \"no benchmarks yet\"",
+    "api:check": "api-extractor run",
+    "api:update": "api-extractor run --local"
   },
   "dependencies": {
     "@loom/kernel": "workspace:*"
+  },
+  "devDependencies": {
+    "@microsoft/api-extractor": "^7.60.1"
   }
 }
