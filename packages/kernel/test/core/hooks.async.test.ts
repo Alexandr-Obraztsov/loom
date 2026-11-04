@@ -46,7 +46,10 @@ describe("hook registry (async) 1", () => {
     const { reg, errors } = setup();
     const cause = new Error("nope");
     reg.tap(asyncHook, "a", {}, () => Promise.reject(cause));
-    await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({ pluginIds: ["a"], cause });
+    await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({
+      pluginIds: ["a"],
+      cause,
+    });
     expect(errors).toHaveLength(1);
   });
 
@@ -57,7 +60,9 @@ describe("hook registry (async) 1", () => {
       first = await n(c);
       return n(c);
     });
-    await expect(reg.run(asyncHook, 3, (c) => Promise.resolve(c))).rejects.toMatchObject({ code: "TAP_FAILED" });
+    await expect(reg.run(asyncHook, 3, (c) => Promise.resolve(c))).rejects.toMatchObject({
+      code: "TAP_FAILED",
+    });
     expect(first).toBe(3);
     expect(errors).toHaveLength(1);
   });
@@ -89,7 +94,9 @@ describe("hook registry (async) 2", () => {
       },
       (c, n) => n(c),
     );
-    await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({ pluginIds: ["m"] });
+    await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({
+      pluginIds: ["m"],
+    });
   });
 });
 
@@ -98,7 +105,8 @@ describe("hook registry (async passthrough)", () => {
     const { reg } = setup();
     const plain = asyncHook;
     reg.tap(plain, "a", {}, (c, n) => n(c));
-    reg.tap(plain, "b", { priority: -1 }, ((c: number, n: (c: number) => unknown) => n(c)) as never);
+    reg.tap(plain, "b", { priority: -1 }, ((c: number, n: (c: number) => unknown) =>
+      n(c)) as never);
     const fb = ((c: number) => c + 1) as unknown as (c: number) => Promise<number>;
     await expect(Promise.resolve(reg.run(plain, 1, fb))).resolves.toBe(2);
   });
