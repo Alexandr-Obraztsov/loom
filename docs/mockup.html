@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loom — макет</title>
+<style>
+/* Токены: всё оформление идёт отсюда — тема-плагин переопределяет только их */
+:root{
+  --bg:#ffffff;--sidebar:#f7f7f8;--muted:#f1f1f3;--border:#e6e6ea;--fg:#18181b;--fg2:#71717a;
+  --accent:#2563eb;--ok:#16a34a;--warn:#d97706;--danger:#dc2626;--hl:#fef3c7;
+  --radius:8px;--font:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,monospace;
+  --ease:cubic-bezier(.2,.8,.2,1);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#111113;--sidebar:#18181b;--muted:#1f1f23;--border:#2a2a2f;--fg:#ececef;--fg2:#8b8b94;
+  --accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--danger:#f87171;--hl:#3a3115;
+}}
+:root[data-theme="dark"]{--bg:#111113;--sidebar:#18181b;--muted:#1f1f23;--border:#2a2a2f;--fg:#ececef;--fg2:#8b8b94;--accent:#60a5fa;--ok:#4ade80;--warn:#fbbf24;--danger:#f87171;--hl:#3a3115}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font:13px/1.5 var(--font);background:var(--bg);color:var(--fg);height:100vh;display:grid;grid-template-rows:40px 1fr;overflow:hidden;-webkit-font-smoothing:antialiased}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+.mono{font-family:var(--mono);font-size:12px}
+.fg2{color:var(--fg2)}
+
+/* title bar */
+.top{display:flex;align-items:center;gap:12px;padding:0 12px;border-bottom:1px solid var(--border);background:var(--sidebar)}
+.lights{display:flex;gap:7px}.lights i{width:11px;height:11px;border-radius:50%;background:var(--border)}
+.search{margin:0 auto;width:min(420px,40vw);height:26px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg2);display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:12px}
+kbd{font:11px var(--mono);color:var(--fg2);border:1px solid var(--border);border-radius:4px;padding:0 4px}
+.icon-btn{width:26px;height:26px;border-radius:6px;display:grid;place-items:center;color:var(--fg2)}
+.icon-btn:hover{background:var(--muted);color:var(--fg)}
+
+/* layout */
+.app{display:grid;grid-template-columns:248px 1fr var(--pane,46%);min-height:0;transition:grid-template-columns .35s var(--ease)}
+.app.nopane{--pane:0px}
+aside,.main,.pane{min-height:0;display:flex;flex-direction:column}
+aside{background:var(--sidebar);border-right:1px solid var(--border)}
+.pane{border-left:1px solid var(--border);overflow:hidden}
+
+/* sidebar */
+.new{margin:10px;height:30px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg);display:flex;align-items:center;gap:8px;padding:0 10px}
+.new:hover{border-color:var(--fg2)}
+.group{padding:10px 14px 4px;font-size:11px;color:var(--fg2)}
+.task{margin:1px 6px;padding:6px 8px;border-radius:6px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.task:hover{background:var(--muted)}
+.task .t{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps{margin:2px 6px 6px 20px;border-left:1px solid var(--border)}
+.step{margin:1px 0 1px 6px;padding:5px 8px;border-radius:6px;display:flex;align-items:center;gap:8px;cursor:pointer;color:var(--fg2);transition:background .15s,color .15s}
+.step:hover{background:var(--muted);color:var(--fg)}
+.step.sel{background:var(--muted);color:var(--fg);font-weight:500}
+.st{width:14px;height:14px;flex:none;display:grid;place-items:center}
+.st.done::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.st.run::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.4s infinite}
+.st.gate::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--warn);transform:rotate(45deg)}
+.st.wait::before{content:"";width:8px;height:8px;border-radius:50%;border:1.5px solid var(--fg2)}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 50%,transparent)}70%,100%{box-shadow:0 0 0 6px transparent}}
+.side-foot{margin-top:auto;border-top:1px solid var(--border);padding:8px 6px;display:flex;flex-direction:column;gap:1px}
+.side-foot .task{color:var(--fg2)}
+.badge{font-size:11px;color:var(--fg2);background:var(--muted);border-radius:4px;padding:0 5px}
+
+/* main / chat */
+.head{height:44px;flex:none;display:flex;align-items:center;gap:10px;padding:0 16px;border-bottom:1px solid var(--border)}
+.head h1{font-size:13px;font-weight:600}
+.crumbs{display:flex;align-items:center;gap:4px;margin-left:auto;font-size:12px;color:var(--fg2)}
+.crumbs span{padding:2px 7px;border-radius:5px;cursor:pointer}
+.crumbs span.on{background:var(--muted);color:var(--fg)}
+.crumbs b{font-weight:400;opacity:.5}
+.thread{flex:1;overflow:auto;padding:20px 0}
+.thread>*{max-width:680px;margin:0 auto 10px;padding:0 20px;animation:in .3s var(--ease) both}
+@keyframes in{from{opacity:0;transform:translateY(4px)}}
+.u{display:flex;justify-content:flex-end}
+.u div{background:var(--muted);padding:8px 12px;border-radius:12px;max-width:80%}
+.a{line-height:1.6}
+.tc{display:flex;align-items:center;gap:8px;color:var(--fg2);font-size:12px;cursor:pointer}
+.tc:hover{color:var(--fg)}
+.tc .mono{color:var(--fg)}
+.tc .r{margin-left:auto;opacity:.7}
+/* артефакт в чате: inline-слот, клик открывает вид в панели */
+.art{border:1px solid var(--border);border-radius:var(--radius);padding:10px 12px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:border-color .15s}
+.art:hover{border-color:var(--fg2)}
+.art .ty{margin-left:auto}
+.gatecard{border:1px solid color-mix(in srgb,var(--warn) 45%,var(--border));background:color-mix(in srgb,var(--warn) 6%,var(--bg));border-radius:var(--radius);padding:12px}
+.row{display:flex;gap:8px;margin-top:10px}
+.btn{height:28px;padding:0 11px;border-radius:6px;border:1px solid var(--border);background:var(--bg);font-size:12px}
+.btn:hover{background:var(--muted)}
+.btn.pri{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.composer{flex:none;max-width:680px;width:calc(100% - 40px);margin:0 auto 16px;border:1px solid var(--border);border-radius:12px;padding:10px 12px 8px;box-shadow:0 1px 2px rgb(0 0 0/.04)}
+.composer .ph{color:var(--fg2);min-height:36px}
+.composer .bar{display:flex;align-items:center;gap:6px}
+.pill{height:24px;padding:0 8px;border-radius:6px;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fg2)}
+.pill:hover{background:var(--muted);color:var(--fg)}
+.send{margin-left:auto;width:26px;height:26px;border-radius:7px;background:var(--fg);color:var(--bg);display:grid;place-items:center}
+
+/* pane */
+.ptabs{height:44px;flex:none;display:flex;align-items:center;gap:2px;padding:0 8px;border-bottom:1px solid var(--border);overflow-x:auto}
+.ptab{height:28px;padding:0 10px;border-radius:6px;color:var(--fg2);white-space:nowrap;display:flex;align-items:center;gap:6px}
+.ptab:hover{color:var(--fg)}
+.ptab.on{background:var(--muted);color:var(--fg)}
+.ptab .x{opacity:0;font-size:11px}.ptab:hover .x{opacity:.6}
+.pbody{flex:1;overflow:auto;padding:16px;min-width:360px}
+.pbody>div{animation:in .3s var(--ease) both}
+.meta{display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:12px;color:var(--fg2)}
+
+/* view: context tree */
+.tree{display:grid;grid-template-columns:minmax(180px,1fr) 1.2fr;gap:12px}
+.n{padding:4px 8px;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.n:hover,.n.on{background:var(--muted)}
+.n.l1{padding-left:24px}.n.l2{padding-left:40px;color:var(--fg2)}
+.src{font-size:10px;color:var(--fg2);margin-left:auto}
+.doc{border:1px solid var(--border);border-radius:var(--radius);padding:12px;line-height:1.6}
+.doc mark{background:var(--hl);color:inherit;border-radius:3px;padding:0 2px}
+/* view: sandbox */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.frame{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;position:relative}
+.frame .cap{font-size:11px;color:var(--fg2);padding:5px 8px;border-bottom:1px solid var(--border);background:var(--sidebar)}
+.mock{padding:14px;display:flex;flex-direction:column;gap:8px;background:#fff}
+.mock .h{height:12px;width:55%;background:#27272a;border-radius:3px}
+.mock .p{height:7px;background:#e4e4e7;border-radius:3px}
+.mock .b{height:28px;width:110px;background:#2563eb;border-radius:12px;margin-top:4px;transition:border-radius .6s var(--ease),margin .6s var(--ease)}
+.hot{position:absolute;border:1.5px solid var(--danger);border-radius:4px;transition:opacity .5s}
+.score{display:flex;align-items:center;gap:10px;margin-top:14px;font-size:12px}
+.meter{flex:1;height:4px;background:var(--muted);border-radius:4px;overflow:hidden}
+.meter i{display:block;height:100%;background:var(--ok);transition:width .8s var(--ease)}
+.iters{display:flex;gap:3px;margin-top:8px}
+.iters span{flex:1;height:18px;border-radius:3px;background:var(--muted);font:10px var(--mono);display:grid;place-items:center;color:var(--fg2)}
+/* view: statechart */
+svg text{fill:var(--fg);font:12px var(--font)}
+.sn rect{fill:var(--bg);stroke:var(--border)}
+.sn.cur rect{stroke:var(--accent);stroke-width:1.5}
+.e{stroke:var(--fg2);fill:none;stroke-width:1.2}
+.flow{stroke:var(--accent);stroke-dasharray:3 5;animation:dash 1s linear infinite}
+@keyframes dash{to{stroke-dashoffset:-16}}
+.lb{fill:var(--fg2)!important;font-size:10.5px!important}
+/* events */
+.ev{display:grid;grid-template-columns:62px 92px 1fr;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px}
+
+@media (max-width:860px){
+  .app{grid-template-columns:1fr}aside{display:none}.pane{display:none}
+  .search{display:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="lights"><i></i><i></i><i></i></div>
+  <span class="fg2">shop-frontend</span>
+  <div class="search">Поиск, команды, агенты <kbd>⌘K</kbd></div>
+  <button class="icon-btn" id="theme" title="Тема">◐</button>
+  <button class="icon-btn" id="togglePane" title="Панель видов">▥</button>
+</div>
+
+<div class="app" id="app">
+  <aside>
+    <button class="new">＋ Новая задача <kbd style="margin-left:auto">⌘N</kbd></button>
+    <div class="group">Активные</div>
+    <div class="task"><span class="st run"></span><span class="t">FRONT-1423 · Фильтры каталога</span></div>
+    <div class="steps" id="steps"></div>
+    <div class="task"><span class="st gate"></span><span class="t">FRONT-1431 · Пустое состояние корзины</span></div>
+    <div class="group">Сегодня</div>
+    <div class="task"><span class="st done"></span><span class="t">BUG-88 · Скачет хедер</span></div>
+    <div class="task"><span class="st done"></span><span class="t">FRONT-1419 · Скелетоны</span></div>
+    <div class="side-foot">
+      <div class="task">⌂ <span class="t">Профиль: Frontend</span></div>
+      <div class="task">⧉ <span class="t">Плагины</span><span class="badge">12</span></div>
+      <div class="task">⚙ <span class="t">Настройки</span></div>
+    </div>
+  </aside>
+
+  <section class="main">
+    <div class="head">
+      <h1 id="agentName"></h1>
+      <span class="fg2" id="agentSub"></span>
+      <div class="crumbs" id="crumbs"></div>
+    </div>
+    <div class="thread" id="thread"></div>
+    <div class="composer">
+      <div class="ph">Ответь агенту, упомяни @источник или /команду</div>
+      <div class="bar">
+        <button class="pill">＠ Контекст</button>
+        <button class="pill" id="modelPill">✦ sonnet</button>
+        <button class="pill">⛨ Спрашивать перед записью</button>
+        <button class="send">↑</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="pane">
+    <div class="ptabs" id="ptabs"></div>
+    <div class="pbody" id="pbody"></div>
+  </section>
+</div>
+
+<script>
+// Данные агентов. В продукте: агенты и виды приходят из плагинов, связь — по типу артефакта.
+const steps=[
+ {id:'ctx',name:'Context Hunter',sub:'Jira · Wiki · Time',st:'done',views:[['tree','Источники','context.tree@1']]},
+ {id:'logic',name:'Logic Designer',sub:'схема состояний',st:'done',views:[['chart','Statechart','logic.statechart@1']]},
+ {id:'ui',name:'Figma Builder',sub:'итерация 5 из 8',st:'run',views:[['sbx','Песочница','ui.sandbox@1'],['story','Storybook','ui.story@1']]},
+ {id:'rev',name:'Reviewer',sub:'ждёт апрува',st:'gate',views:[['diff','Diff','code.diff@1']]},
+];
+const T={
+ ctx:[['u','Собери контекст по FRONT-1423'],['t','jira.getIssue','FRONT-1423','0.4s'],['t','jira.search','3 связанных','0.9s'],['t','wiki.search','«Фильтры каталога»','1.2s'],['t','time.worklogs','2 записи','0.3s'],
+      ['a','Нашёл 7 источников. Ключевое: состояние фильтров живёт в URL (Wiki §3), фасеты приходят одним запросом (FRONT-1398).'],['art','tree','Дерево контекста · 7 источников','context.tree@1']],
+ logic:[['t','read_artifact','context.tree@1','—'],['a','Пять состояний. Спорное место — повторный выбор во время applying: я выбрал дебаунс 300 мс вместо блокировки.'],['art','chart','Statechart · 5 состояний, 6 переходов','logic.statechart@1'],
+        ['g','Утвердить схему?','Дальше Figma Builder реализует её в коде.',true],['u','Дебаунс подходит']],
+ ui:[['t','figma.getNode','Catalog/Filters','1.1s'],['t','sandbox.render','FilterPanel','2.3s'],['t','pixel.diff','score 0.91','0.6s'],
+     ['a','Два расхождения: радиус кнопки 8 → 12 px и отступ заголовка −4 px. Правлю.'],['t','edit','FilterPanel.tsx  +4 −2','0.2s'],['t','pixel.diff','score 0.97','0.6s'],['art','sbx','Песочница · score 0.97 / цель 0.98','ui.diff@1']],
+ rev:[['t','git.diff','12 файлов','0.3s'],['a','Изменения покрыты сторибуком и тестом на URL-синхронизацию. Замечаний нет.'],['art','diff','Diff · +214 −38','code.diff@1'],['g','Создать MR?','Ветка feature/FRONT-1423 → main.',false]],
+};
+const V={
+ tree:()=>`<div class="tree"><div>${[['Jira',0],['FRONT-1423 Фильтры',1],['Критерии приёмки',2],['FRONT-1398 API фасетов',1],['Wiki',0],['Каталог / Фильтры §3',1],['Синхронизация с URL',2],['Time',0],['2 ворклога · 3.5 ч',1]]
+   .map(([n,l],i)=>`<div class="n l${l} ${i===6?'on':''}">${l?'':'▾'} ${n}${l?'':`<span class="src">${['Jira','Wiki','Time'][[0,4,7].indexOf(i)]?'MCP':''}</span>`}</div>`).join('')}</div>
+   <div class="doc"><div class="fg2" style="font-size:11px;margin-bottom:6px">Wiki · Каталог / Фильтры §3</div>Состояние фильтров <mark>хранится в query-параметрах URL</mark>, чтобы ссылкой можно было поделиться. При смене фасета — <mark>сброс пагинации</mark>.
+   <div class="row"><button class="btn">Открыть ↗</button><button class="btn">Не релевантно</button><button class="btn pri">Закрепить</button></div></div></div>`,
+ chart:()=>`<svg viewBox="0 0 520 280" width="100%"><defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="currentColor" style="color:var(--fg2)"/></marker></defs>
+   ${[['idle',20,118],['editing',160,30],['applying',320,30],['loaded',320,200],['error',160,200]].map(([n,x,y])=>`<g class="sn ${n==='applying'?'cur':''}"><rect x="${x}" y="${y}" width="104" height="40" rx="8"/><text x="${x+52}" y="${y+25}" text-anchor="middle">${n}</text></g>`).join('')}
+   <path class="e" marker-end="url(#ar)" d="M72 118 C80 80 120 55 158 50"/><text class="lb" x="78" y="76">select</text>
+   <path class="e flow" marker-end="url(#ar)" d="M264 50 L318 50"/><text class="lb" x="262" y="40">debounce 300</text>
+   <path class="e" marker-end="url(#ar)" d="M372 70 L372 198"/><text class="lb" x="378" y="138">200 OK</text>
+   <path class="e" marker-end="url(#ar)" d="M330 70 C290 130 240 160 222 198"/><text class="lb" x="226" y="140">4xx / 5xx</text>
+   <path class="e" marker-end="url(#ar)" d="M320 228 C240 262 100 250 72 160"/><text class="lb" x="168" y="268">reset</text></svg>`,
+ sbx:()=>`<div class="cmp"><div class="frame"><div class="cap">Figma · Catalog/Filters</div><div class="mock"><div class="h"></div><div class="p"></div><div class="p" style="width:75%"></div><div class="b"></div></div></div>
+   <div class="frame"><div class="cap">localhost:5173 · песочница</div><div class="mock"><div class="h" id="mh" style="margin-top:4px"></div><div class="p"></div><div class="p" style="width:75%"></div><div class="b" id="mb" style="border-radius:8px"></div></div>
+   <i class="hot" id="h1" style="left:10px;top:34px;width:58%;height:22px"></i><i class="hot" id="h2" style="left:10px;top:92px;width:122px;height:36px"></i></div></div>
+   <div class="score">Pixel score<div class="meter"><i id="mt" style="width:91%"></i></div><b class="mono" id="sc">0.91</b><span class="fg2">цель 0.98</span></div>
+   <div class="iters">${[.62,.78,.85,.91,.97,'','',''].map((v,i)=>`<span style="${v?`background:color-mix(in srgb,var(--ok) ${Math.round((v-.55)*200)}%,var(--muted))`:''}">${v||i+1}</span>`).join('')}</div>`,
+ story:()=>`<div class="doc fg2">Встроенный Storybook проекта (WebContentsView) — истории FilterPanel: default, loading, empty, error.</div>`,
+ diff:()=>`<div class="mono" style="line-height:1.7">${[['','src/catalog/FilterPanel.tsx'],['−','  const [f, setF] = useState(init)'],['+','  const [f, setF] = useUrlState(\"filters\", init)'],['+','  const apply = useDebounced(setF, 300)'],['','src/catalog/FilterPanel.stories.tsx  (новый)']]
+   .map(([s,l])=>`<div style="padding:0 8px;border-radius:3px;${s==='+'?'background:color-mix(in srgb,var(--ok) 12%,transparent)':s==='−'?'background:color-mix(in srgb,var(--danger) 12%,transparent)':'color:var(--fg2);margin-top:6px'}">${s} ${l}</div>`).join('')}</div>`,
+ events:()=>`<div>${T[cur].map((m,i)=>`<div class="ev mono"><span class="fg2">00:0${i}.${i*3}</span><span>${{u:'user.message',t:'tool.call',a:'text.delta',art:'artifact.emit',g:'interrupt'}[m[0]]}</span><span class="fg2">${m[1]} ${m[2]||''}</span></div>`).join('')}</div>`,
+};
+let cur='ui',view='sbx';const $=id=>document.getElementById(id);
+function render(){
+  const s=steps.find(x=>x.id===cur);
+  $('steps').innerHTML=steps.map(x=>`<div class="step ${x.id===cur?'sel':''}" data-id="${x.id}"><span class="st ${x.st}"></span>${x.name}</div>`).join('');
+  $('crumbs').innerHTML=steps.map((x,i)=>`${i?'<b>›</b>':''}<span class="${x.id===cur?'on':''}" data-id="${x.id}">${x.name.split(' ')[0]}</span>`).join('');
+  document.querySelectorAll('[data-id]').forEach(e=>e.onclick=()=>{cur=e.dataset.id;view=steps.find(x=>x.id===cur).views[0][0];render()});
+  $('agentName').textContent=s.name;$('agentSub').textContent=s.sub;
+  $('thread').innerHTML=T[cur].map((m,i)=>{const d=`style="animation-delay:${i*50}ms"`;
+    if(m[0]==='u')return`<div class="u" ${d}><div>${m[1]}</div></div>`;
+    if(m[0]==='a')return`<div class="a" ${d}>${m[1]}</div>`;
+    if(m[0]==='t')return`<div ${d}><div class="tc">⌁ <span class="mono">${m[1]}</span> ${m[2]}<span class="r mono">${m[3]}</span></div></div>`;
+    if(m[0]==='art')return`<div ${d}><div class="art" data-v="${m[1]}">▦ ${m[2]}<span class="ty mono fg2">${m[3]}</span></div></div>`;
+    return`<div ${d}><div class="gatecard"><b>${m[1]}</b><div class="fg2">${m[2]}</div>${m[3]?'<div class="fg2" style="margin-top:8px;font-size:12px">✓ Утверждено тобой</div>':'<div class="row"><button class="btn pri">Утвердить</button><button class="btn">Вернуть с комментарием</button></div>'}</div></div>`}).join('');
+  document.querySelectorAll('.art').forEach(e=>e.onclick=()=>{view=e.dataset.v;$('app').classList.remove('nopane');drawPane()});
+  drawPane();
+}
+function drawPane(){
+  const s=steps.find(x=>x.id===cur);const tabs=[...s.views,['events','События','']];
+  $('ptabs').innerHTML=tabs.map(([k,n])=>`<button class="ptab ${k===view?'on':''}" data-k="${k}">${n}<span class="x">✕</span></button>`).join('')+`<button class="ptab" title="Добавить вид">＋</button>`;
+  document.querySelectorAll('.ptab[data-k]').forEach(e=>e.onclick=()=>{view=e.dataset.k;drawPane()});
+  const t=tabs.find(x=>x[0]===view);
+  $('pbody').innerHTML=`<div>${t[2]?`<div class="meta"><span class="mono">${t[2]}</span><span>· от ${s.name}</span></div>`:''}${V[view]()}</div>`;
+  if(view==='sbx')setTimeout(()=>{if(!$('mt'))return;$('mt').style.width='97%';$('sc').textContent='0.97';$('mb').style.borderRadius='12px';$('mh').style.marginTop='0';$('h1').style.opacity=0;$('h2').style.opacity=.35},900);
+}
+$('togglePane').onclick=()=>$('app').classList.toggle('nopane');
+$('theme').onclick=()=>{const r=document.documentElement,d=matchMedia('(prefers-color-scheme: dark)').matches;
+  r.dataset.theme=(r.dataset.theme||(d?'dark':'light'))==='dark'?'light':'dark'};
+render();
+</script>
+</body>
+</html>
