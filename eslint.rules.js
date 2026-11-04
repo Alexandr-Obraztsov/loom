@@ -126,7 +126,7 @@ export const boundariesConfig = {
           },
           {
             from: { element: { type: "plugin-test" } },
-            allow: [OWN_PLUGIN, allowTo("plugin-test"), PACKAGE_ENTRY, PLUGIN_ENTRY],
+            allow: [OWN_PLUGIN, allowTo("plugin-test"), ENTRY, PACKAGE_ENTRY, PLUGIN_ENTRY],
           },
           // an app may use anything except the internals of kernel
           {

@@ -43,6 +43,8 @@ const expected = {
   [`${p}/foo/src/main.ts`]: null,
   [`${p}/bar/src/renderer.ts`]: null,
   [`${p}/bar/src/deep.ts`]: BOUNDARIES,
+  // plugin tests may use the kernel entry, plugin sources may not
+  [`${p}/foo/test/kernel.test.ts`]: null,
   [`${p}/bar/src/kernel.ts`]: [BOUNDARIES, IMPORTS],
   [`${a}/main.ts`]: null,
   [`${a}/deep.ts`]: BOUNDARIES,

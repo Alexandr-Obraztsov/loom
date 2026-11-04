@@ -1,4 +1,4 @@
-import { Component, useSyncExternalStore } from "react";
+import { Component, useCallback, useSyncExternalStore } from "react";
 import type { ComponentType, ReactNode } from "react";
 import type { ResolvedNode, TreeResult } from "@loom/kernel";
 import { useKernel } from "./provider.js";
@@ -6,10 +6,17 @@ import { useKernel } from "./provider.js";
 /** Re-renders when plugins change; the snapshot is the kernel's current (immutable) tree. */
 export function useTree(): TreeResult {
   const kernel = useKernel();
-  return useSyncExternalStore(
-    (notify) => kernel.on("plugins.changed", notify),
-    () => kernel.tree,
+  // a failed reconcile rebuilds the tree too (rollback) and reports only plugins.failed
+  const subscribe = useCallback(
+    (notify: () => void) => {
+      const offs = [kernel.on("plugins.changed", notify), kernel.on("plugins.failed", notify)];
+      return () => {
+        for (const off of offs) off();
+      };
+    },
+    [kernel],
   );
+  return useSyncExternalStore(subscribe, () => kernel.tree);
 }
 
 function Placeholder(props: { id: string; message: string }): ReactNode {
@@ -22,22 +29,27 @@ function Placeholder(props: { id: string; message: string }): ReactNode {
 
 interface BoundaryProps {
   id: string;
+  node: ResolvedNode;
   children: ReactNode;
 }
 interface BoundaryState {
   error: Error | undefined;
+  node: ResolvedNode;
 }
 
 class Boundary extends Component<BoundaryProps, BoundaryState> {
-  override state: BoundaryState = { error: undefined };
+  override state: BoundaryState = { error: undefined, node: this.props.node };
 
-  static getDerivedStateFromError(error: unknown): BoundaryState {
+  static getDerivedStateFromError(error: unknown): Partial<BoundaryState> {
     return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 
-  override componentDidUpdate(prev: BoundaryProps): void {
-    if (prev.children !== this.props.children && this.state.error)
-      this.setState({ error: undefined });
+  /** A new node object (the tree changed) gets another chance; re-renders of the same node do not. */
+  static getDerivedStateFromProps(
+    props: BoundaryProps,
+    state: BoundaryState,
+  ): BoundaryState | null {
+    return props.node === state.node ? null : { error: undefined, node: props.node };
   }
 
   override render(): ReactNode {
@@ -56,7 +68,7 @@ export function Render(props: { node: ResolvedNode | undefined; fallback?: React
   const View = value?.component;
   if (!View) return null;
   return (
-    <Boundary key={node.id} id={node.id}>
+    <Boundary key={node.id} id={node.id} node={node}>
       <View node={node} />
     </Boundary>
   );

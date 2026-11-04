@@ -229,3 +229,82 @@ describe("@loom/react services", () => {
     }
   });
 });
+
+describe("@loom/react stability and failed reconcile", () => {
+  it("useTree follows plugins.failed, which rebuilds the tree after a rollback", async () => {
+    const real = await boot([plugin("p", [ext("root", () => <p>before</p>)])]);
+    const listeners = new Map<string, Array<() => void>>();
+    let tree = real.tree;
+    const fake = {
+      get tree() {
+        return tree;
+      },
+      on: (type: string, fn: () => void) => {
+        listeners.set(type, [...(listeners.get(type) ?? []), fn]);
+        return () => undefined;
+      },
+    } as unknown as Kernel;
+    render(wrap(fake, <RenderRoot />));
+    expect(screen.getByText("before")).toBeTruthy();
+    const other = await boot([plugin("q", [ext("root", () => <p>rolled back</p>)])]);
+    tree = other.tree;
+    act(() => {
+      for (const fn of listeners.get("plugins.failed") ?? []) fn();
+    });
+    expect(screen.getByText("rolled back")).toBeTruthy();
+  });
+
+  it("a rejected reconcile leaves the previous tree rendered", async () => {
+    const kernel = await boot([plugin("p", [ext("root", () => <p>before</p>)])]);
+    render(wrap(kernel, <RenderRoot />));
+    const broken: PluginDefinition = {
+      ...plugin("p", [ext("root", () => <p>after</p>)]),
+      version: "1.0.1",
+      setup: () => {
+        throw new Error("setup failed");
+      },
+    };
+    await act(async () => {
+      await kernel.reconcile([broken]).catch(() => undefined);
+    });
+    expect(screen.getByText("before")).toBeTruthy();
+  });
+
+  it("hook runner is stable and the boundary retries only for a new node", async () => {
+    const hook = createHook<number, number>("test.id", { mode: "sync" });
+    const kernel = await boot([plugin("p", [])]);
+    const seen: unknown[] = [];
+    const Probe = (): ReactNode => {
+      seen.push(useHookRunner(hook));
+      return null;
+    };
+    const view = render(wrap(kernel, <Probe />));
+    view.rerender(wrap(kernel, <Probe />));
+    expect(seen[0]).toBe(seen[1]);
+
+    let renders = 0;
+    const Throws: View = () => {
+      renders++;
+      throw new Error("always");
+    };
+    const node = (): ResolvedNode => ({
+      id: "n",
+      pluginId: "p",
+      value: { component: Throws },
+      inputs: {},
+    });
+    const first = node();
+    const original = console.error;
+    console.error = () => undefined;
+    try {
+      const r = render(wrap(kernel, <Render node={first} />));
+      const afterFirst = renders;
+      r.rerender(wrap(kernel, <Render node={first} />));
+      expect(renders).toBe(afterFirst);
+      r.rerender(wrap(kernel, <Render node={node()} />));
+      expect(renders).toBeGreaterThan(afterFirst);
+    } finally {
+      console.error = original;
+    }
+  });
+});

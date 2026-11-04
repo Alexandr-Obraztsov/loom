@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext } from "react";
 import type { ReactNode } from "react";
 import type { HookRef, Kernel, ServiceRef } from "@loom/kernel";
 
@@ -21,5 +21,5 @@ export function useService<T extends object>(ref: ServiceRef<T>): T {
 
 export function useHookRunner<C, R>(hook: HookRef<C, R>): (ctx: C, fallback: (c: C) => R) => R {
   const kernel = useKernel();
-  return (ctx, fallback) => kernel.run(hook, ctx, fallback);
+  return useCallback((ctx, fallback) => kernel.run(hook, ctx, fallback), [kernel, hook]);
 }
