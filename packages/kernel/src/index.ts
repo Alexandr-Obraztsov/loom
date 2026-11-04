@@ -5,6 +5,8 @@ export { dependentsOf, resolveOrder } from "./core/graph.js";
 export type { ResolvedOrder } from "./core/graph.js";
 export { createServiceRegistry } from "./core/services.js";
 export type { ServiceRegistry } from "./core/services.js";
+export { createPluginContext } from "./core/context.js";
+export type { PluginContextArgs, ScopedPluginContext } from "./core/context.js";
 export { createEventBus } from "./core/events.js";
 export type { EventBus } from "./core/events.js";
 export { createHookRegistry } from "./core/hooks.js";
