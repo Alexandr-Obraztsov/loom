@@ -9,6 +9,8 @@ export { createEventBus } from "./core/events.js";
 export type { EventBus } from "./core/events.js";
 export { createHookRegistry } from "./core/hooks.js";
 export type { HookRegistry } from "./core/hooks.js";
+export { buildTree } from "./core/tree.js";
+export type { TreeConfig, TreeResult } from "./core/tree.js";
 export { validatePlugin } from "./core/manifest.js";
 export type {
   ExtensionContext,
