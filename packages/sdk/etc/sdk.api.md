@@ -4,60 +4,228 @@
 
 ```ts
 
-import { attach } from '@loom/kernel';
-import { BeforeInstallHook } from '@loom/kernel';
-import { createExtension } from '@loom/kernel';
-import { createHook } from '@loom/kernel';
-import { createServiceRef } from '@loom/kernel';
-import { definePlugin } from '@loom/kernel';
-import { ExtensionDefinition } from '@loom/kernel';
-import { HookRef } from '@loom/kernel';
-import { InputSpec } from '@loom/kernel';
-import { LoomError } from '@loom/kernel';
-import { LoomErrorCode } from '@loom/kernel';
-import { Next } from '@loom/kernel';
-import { PluginContext } from '@loom/kernel';
-import { PluginDefinition } from '@loom/kernel';
-import { PluginsRef } from '@loom/kernel';
-import { ResolvedNode } from '@loom/kernel';
-import { ServiceRef } from '@loom/kernel';
-import { TapOptions } from '@loom/kernel';
+import type { ZodType } from 'zod';
 
-export { attach }
+// @public
+export function attach<O>(parentId: string, input: string, value: O & {
+    id?: string;
+}, opts?: {
+    order?: number;
+}): ExtensionDefinition<O>;
 
-export { BeforeInstallHook }
+// @public (undocumented)
+export const BeforeInstallHook: HookRef<{
+    plugin: PluginDefinition;
+}, Promise<{
+    allow: boolean;
+    reason?: string;
+}>>;
 
-export { createExtension }
+// @public (undocumented)
+export function createExtension<O>(def: ExtensionDefinition<O>): ExtensionDefinition<O>;
 
-export { createHook }
+// @public (undocumented)
+export function createHook<C, R>(id: string, opts?: {
+    mode?: "sync" | "async";
+}): HookRef<C, R>;
 
-export { createServiceRef }
+// @public (undocumented)
+export function createServiceRef<T>(id: string): ServiceRef<T>;
 
-export { definePlugin }
+// @public (undocumented)
+export function definePlugin(def: PluginDefinition): PluginDefinition;
 
-export { ExtensionDefinition }
+// @public (undocumented)
+export interface ExtensionContext<I> {
+    // (undocumented)
+    config: unknown;
+    // (undocumented)
+    inputs: I;
+    // (undocumented)
+    use<T>(ref: ServiceRef<T>): T;
+}
 
-export { HookRef }
+// @public (undocumented)
+export interface ExtensionDefinition<O = unknown> {
+    // (undocumented)
+    attachTo?: {
+        id: string;
+        input: string;
+    };
+    // (undocumented)
+    factory(ctx: ExtensionContext<Record<string, ResolvedNode | ResolvedNode[] | undefined>>): O;
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    inputs?: Record<string, InputSpec>;
+    // (undocumented)
+    order?: number;
+}
 
-export { InputSpec }
+// @public
+export interface HookRef<C, R> {
+    // (undocumented)
+    readonly __types?: [C, R];
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: "hook";
+    // (undocumented)
+    readonly mode: "sync" | "async";
+}
 
-export { LoomError }
+// @public (undocumented)
+export interface InputSpec {
+    // (undocumented)
+    multiple?: boolean;
+    // (undocumented)
+    required?: boolean;
+    // (undocumented)
+    schema?: ZodType;
+}
 
-export { LoomErrorCode }
+// @public (undocumented)
+export class LoomError extends Error {
+    constructor(code: LoomErrorCode, message: string, options?: LoomErrorOptions);
+    // (undocumented)
+    readonly code: LoomErrorCode;
+    // (undocumented)
+    readonly details?: unknown;
+    // (undocumented)
+    readonly pluginIds: readonly string[];
+}
 
-export { Next }
+// @public (undocumented)
+export type LoomErrorCode = "MANIFEST_INVALID" | "DEPENDENCY_MISSING" | "DEPENDENCY_VERSION" | "DEPENDENCY_CYCLE" | "UNTRUSTED" | "SERVICE_CONFLICT" | "SERVICE_MISSING" | "UNDECLARED_DEPENDENCY" | "EXTENSION_CONFLICT" | "EXTENSION_INPUT_MISMATCH" | "EXTENSION_FACTORY_FAILED" | "SETUP_FAILED" | "TAP_FAILED" | "HOOK_TIMEOUT" | "INSTALL_DENIED" | "RPC_DISCONNECTED" | "RPC_REMOTE_ERROR" | "RPC_CANCELLED" | "DISPOSED";
 
-export { PluginContext }
+// @public (undocumented)
+export interface LoomErrorOptions {
+    // (undocumented)
+    readonly cause?: unknown;
+    // (undocumented)
+    readonly details?: unknown;
+    // (undocumented)
+    readonly pluginIds?: readonly string[];
+}
 
-export { PluginDefinition }
+// @public (undocumented)
+export type Next<C, R> = (ctx: C) => R;
 
-export { PluginsRef }
+// @public (undocumented)
+export interface PluginContext {
+    // (undocumented)
+    readonly config: unknown;
+    // (undocumented)
+    decorate<T extends object>(ref: ServiceRef<T>, fn: (prev: T) => T): void;
+    // (undocumented)
+    emit<P>(type: string, payload: P): void;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    on<P>(type: string, listener: (p: P) => void): void;
+    // (undocumented)
+    onDispose(fn: () => void | Promise<void>): void;
+    // (undocumented)
+    override<T extends object>(ref: ServiceRef<T>, impl: T): void;
+    // (undocumented)
+    provide<T extends object>(ref: ServiceRef<T>, impl: T): void;
+    // (undocumented)
+    run<C, R>(hook: HookRef<C, R>, ctx: C, fallback: (ctx: C) => R): R;
+    // (undocumented)
+    readonly state: Record<string, unknown>;
+    // (undocumented)
+    tap<C, R>(hook: HookRef<C, R>, opts: TapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R): void;
+    // (undocumented)
+    use<T extends object>(ref: ServiceRef<T>): T;
+}
 
-export { ResolvedNode }
+// @public (undocumented)
+export interface PluginDefinition {
+    // (undocumented)
+    dependsOn?: Record<string, string>;
+    // (undocumented)
+    extensions?: readonly ExtensionDefinition[];
+    // (undocumented)
+    id: string;
+    // (undocumented)
+    optionalDependsOn?: Record<string, string>;
+    // (undocumented)
+    overrides?: readonly ExtensionDefinition[];
+    // (undocumented)
+    scope?: "builtin" | "user" | "project";
+    // (undocumented)
+    setup?(ctx: PluginContext): void | Promise<void>;
+    // (undocumented)
+    startup?: Record<string, unknown>;
+    // (undocumented)
+    version: string;
+}
 
-export { ServiceRef }
+// @public (undocumented)
+export const PluginsRef: ServiceRef<PluginsService>;
 
-export { TapOptions }
+// @public
+export interface PluginsService {
+    disable(id: string): Promise<ReconcileDiff>;
+    enable(id: string): Promise<ReconcileDiff>;
+    install(def: PluginDefinition): Promise<ReconcileDiff>;
+    // (undocumented)
+    list(): readonly {
+        id: string;
+        version: string;
+        enabled: boolean;
+    }[];
+    reload(def: PluginDefinition): Promise<ReconcileDiff>;
+    uninstall(id: string): Promise<ReconcileDiff>;
+}
+
+// @public (undocumented)
+export interface ReconcileDiff {
+    // (undocumented)
+    added: string[];
+    // (undocumented)
+    reloaded: string[];
+    // (undocumented)
+    removed: string[];
+    // (undocumented)
+    requiresRestart: string[];
+}
+
+// @public (undocumented)
+export interface ResolvedNode<O = unknown> {
+    // (undocumented)
+    readonly error?: LoomError;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly inputs: Readonly<Record<string, ResolvedNode | readonly ResolvedNode[] | undefined>>;
+    // (undocumented)
+    readonly pluginId: string;
+    // (undocumented)
+    readonly value: O | undefined;
+}
+
+// @public (undocumented)
+export interface ServiceRef<T> {
+    // (undocumented)
+    readonly __type?: T;
+    // (undocumented)
+    readonly id: string;
+    // (undocumented)
+    readonly kind: "service";
+}
+
+// @public (undocumented)
+export interface TapOptions<C> {
+    // (undocumented)
+    after?: readonly string[];
+    // (undocumented)
+    before?: readonly string[];
+    // (undocumented)
+    match?: (ctx: C) => boolean;
+    // (undocumented)
+    priority?: number;
+}
 
 // (No @packageDocumentation comment for this package)
 
