@@ -5,6 +5,8 @@ export { dependentsOf, resolveOrder } from "./core/graph.js";
 export type { ResolvedOrder } from "./core/graph.js";
 export { createServiceRegistry } from "./core/services.js";
 export type { ServiceRegistry } from "./core/services.js";
+export { createEventBus } from "./core/events.js";
+export type { EventBus } from "./core/events.js";
 export { createHookRegistry } from "./core/hooks.js";
 export type { HookRegistry } from "./core/hooks.js";
 export { validatePlugin } from "./core/manifest.js";
