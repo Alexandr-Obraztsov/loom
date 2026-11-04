@@ -114,12 +114,10 @@ export function createKernel(options: KernelOptions = {}): Kernel {
 
   const kernel: Kernel = {
     reconcile: (desired) =>
-      submit((current) => ({
-        catalog: desired.map((def) => ({
-          def,
-          enabled: current.find((e) => e.def.id === def.id)?.enabled ?? true,
-        })),
-      })),
+      submit((current) => {
+        const enabled = new Map(current.map((e) => [e.def.id, e.enabled]));
+        return { catalog: desired.map((def) => ({ def, enabled: enabled.get(def.id) ?? true })) };
+      }),
     get plugins() {
       return rt.active;
     },

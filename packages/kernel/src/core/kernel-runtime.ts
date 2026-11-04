@@ -106,31 +106,40 @@ export class KernelRuntime {
     ) as T;
   }
 
-  /** One reconcile pass; see `applyReconcile` for the rollback contract. */
+  /**
+   * One reconcile pass; see `applyReconcile` for the rollback contract. Hook ordering is batched
+   * for the pass (each touched hook is ordered once, before the outcome event is emitted).
+   */
   async pass(req: PassRequest): Promise<ReconcileDiff> {
     const desired = await this.trusted(req.desired.map((d) => validatePlugin(d)));
     const force = req.freshServices ? new Set(desired.map((d) => d.id)) : req.force;
     const plan = planReconcile(this.active, desired, force, req.config);
     const previous = { services: this.services, config: this.config };
-    this.pending = req.config;
-    this.rank(plan.order);
-    if (req.freshServices) this.services = this.registry(req.config);
+    const resume = this.hooks.defer();
     try {
-      await applyReconcile(plan, this.runtimeFor(plan, previous));
-    } catch (error) {
-      const alive = plan.current.filter((p) => this.running.has(p.id));
-      if (alive.length !== plan.current.length) {
-        this.active = alive;
-        this.tree = this.buildTree(this.tree);
+      this.pending = req.config;
+      this.rank(plan.order);
+      if (req.freshServices) this.services = this.registry(req.config);
+      try {
+        await applyReconcile(plan, this.runtimeFor(plan, previous));
+      } catch (error) {
+        const alive = plan.current.filter((p) => this.running.has(p.id));
+        if (alive.length !== plan.current.length) {
+          this.active = alive;
+          this.tree = this.buildTree(this.tree);
+        }
+        resume();
+        this.events.emit("plugins.failed", { error });
+        throw error;
       }
-      this.events.emit("plugins.failed", { error });
-      throw error;
+      for (const id of plan.diff.removed) this.states.delete(id);
+      this.active = plan.order;
+      this.config = req.config;
+      this.rank(plan.order);
+      this.tree = this.buildTree(req.freshServices ? undefined : this.tree);
+    } finally {
+      resume();
     }
-    for (const id of plan.diff.removed) this.states.delete(id);
-    this.active = plan.order;
-    this.config = req.config;
-    this.rank(plan.order);
-    this.tree = this.buildTree(req.freshServices ? undefined : this.tree);
     this.events.emit("plugins.changed", plan.diff);
     return plan.diff;
   }
@@ -140,7 +149,10 @@ export class KernelRuntime {
    * PluginsRef stays provided so stale proxies reach it and get DISPOSED, not SERVICE_MISSING.
    */
   async disposeAll(): Promise<void> {
+    const resume = this.hooks.defer();
+    // teardown never rejects, so the batch always ends here
     for (const def of [...this.active].reverse()) await this.teardown(def.id);
+    resume();
     this.active = [];
     this.states.clear();
     this.tree = EMPTY_TREE;
@@ -148,9 +160,11 @@ export class KernelRuntime {
     this.events.removeOwner(KERNEL_ID);
   }
 
-  /** Ranks owners by `order` and re-sorts every registry, so a reload never moves registrations. */
+  /** Ranks owners by `order` and re-sorts every registry, so a reload never moves registrations. No-op if no rank changed. */
   private rank(order: readonly PluginDefinition[]): void {
-    this.ranks = new Map(order.map((p, i) => [p.id, i]));
+    const ranks = new Map(order.map((p, i) => [p.id, i]));
+    if (ranks.size === this.ranks.size && order.every((p, i) => this.ranks.get(p.id) === i)) return;
+    this.ranks = ranks;
     this.hooks.reorder();
     this.events.reorder();
     this.services.reorder();

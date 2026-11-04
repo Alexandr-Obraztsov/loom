@@ -29,18 +29,14 @@ export interface TreeIndex {
   readonly rootId: string;
   readonly placed: ReadonlyMap<string, Placed>;
   readonly disabled: ReadonlySet<string>;
-  /** Children keyed by `childKey(parent, input)`, sorted by order then id. */
-  readonly children: ReadonlyMap<string, readonly Placed[]>;
+  /** Children by parent id, then input name; each list sorted by order then id. */
+  readonly children: ReadonlyMap<string, ReadonlyMap<string, readonly Placed[]>>;
 }
 
 export interface Orphan {
   readonly id: string;
   readonly pluginId: string;
   readonly reason: LoomError;
-}
-
-export function childKey(parentId: string, input: string): string {
-  return `${parentId}\u0000${input}`;
 }
 
 function groupById(entries: readonly TreeEntry[], disabled: ReadonlySet<string>): Map<string, TreeEntry[]> {
@@ -91,15 +87,16 @@ export function indexEntries(entries: readonly TreeEntry[], config: TreeIndexCon
   const disabled = new Set(config.disabled ?? []);
   const placed = new Map<string, Placed>();
   for (const [id, group] of groupById(entries, disabled)) placed.set(id, place(id, group, config));
-  const children = new Map<string, Placed[]>();
+  const children = new Map<string, Map<string, Placed[]>>();
   for (const p of placed.values()) {
     if (p.id === rootId || !p.attach) continue;
-    const key = childKey(p.attach.id, p.attach.input);
-    const list = children.get(key);
+    let byInput = children.get(p.attach.id);
+    if (!byInput) children.set(p.attach.id, (byInput = new Map<string, Placed[]>()));
+    const list = byInput.get(p.attach.input);
     if (list) list.push(p);
-    else children.set(key, [p]);
+    else byInput.set(p.attach.input, [p]);
   }
-  for (const list of children.values()) list.sort(byOrderThenId);
+  for (const byInput of children.values()) for (const list of byInput.values()) list.sort(byOrderThenId);
   return { rootId, placed, disabled, children };
 }
 
@@ -115,32 +112,58 @@ function stepUp(index: TreeIndex, p: Placed): string | Placed {
   return parent;
 }
 
-function reasonFor(index: TreeIndex, start: Placed): LoomError {
+/** Where a detached extension's walk up ends: the last node, why it hangs off nothing, and the plugins on the way. */
+interface Terminal {
+  readonly cur: Placed;
+  readonly reason: string;
+  readonly pluginIds: readonly string[];
+}
+
+/**
+ * Walks up from `start` to the first missing link. Terminals are memoized for every node on the
+ * way, so the reasons of a detached chain of n extensions cost O(n), not O(n²).
+ */
+function reasonFor(index: TreeIndex, start: Placed, memo: Map<string, Terminal>): LoomError {
   const chain: Placed[] = [start];
   const seen = new Set([start.id]);
   let cur = start;
-  for (;;) {
+  let known = memo.get(cur.id);
+  while (!known) {
     const up = stepUp(index, cur);
-    const pluginIds = [...new Set(chain.map((c) => c.pluginId))];
     if (typeof up === "string") {
-      const what = cur === start ? `Extension "${start.id}" ${up}` : `Extension "${start.id}" is unreachable: ancestor "${cur.id}" ${up}`;
-      return new LoomError("EXTENSION_INPUT_MISMATCH", what, { pluginIds });
+      known = { cur, reason: up, pluginIds: [cur.pluginId] };
+      memo.set(cur.id, known);
+    } else if (seen.has(up.id)) return cycleError(start, chain, up);
+    else {
+      seen.add(up.id);
+      chain.push(up);
+      cur = up;
+      known = memo.get(cur.id);
     }
-    if (seen.has(up.id)) {
-      const ids = chain.map((c) => c.id);
-      return new LoomError("DEPENDENCY_CYCLE", `Extension "${start.id}" is part of or hangs off an attachTo cycle: ${[...ids, up.id].join(" -> ")}`, { pluginIds, details: { chain: ids } });
-    }
-    seen.add(up.id);
-    chain.push(up);
-    cur = up;
   }
+  for (let i = chain.length - 2; i >= 0; i--) {
+    const node = chain[i] as Placed;
+    known = { ...known, pluginIds: [...new Set([node.pluginId, ...known.pluginIds])] };
+    memo.set(node.id, known);
+  }
+  const { cur: last, reason, pluginIds } = known;
+  const what = last === start ? `Extension "${start.id}" ${reason}` : `Extension "${start.id}" is unreachable: ancestor "${last.id}" ${reason}`;
+  return new LoomError("EXTENSION_INPUT_MISMATCH", what, { pluginIds });
+}
+
+/** `start` is in or hangs off an attachTo cycle that `up` closes; `chain` runs from `start` to just before `up`. */
+function cycleError(start: Placed, chain: readonly Placed[], up: Placed): LoomError {
+  const pluginIds = [...new Set(chain.map((c) => c.pluginId))];
+  const ids = chain.map((c) => c.id);
+  return new LoomError("DEPENDENCY_CYCLE", `Extension "${start.id}" is part of or hangs off an attachTo cycle: ${[...ids, up.id].join(" -> ")}`, { pluginIds, details: { chain: ids } });
 }
 
 /** Every placed extension that the resolve pass did not reach, with the reason it is detached. */
-export function findOrphans(index: TreeIndex, reached: ReadonlySet<string>): Orphan[] {
+export function findOrphans(index: TreeIndex, reached: { has(id: string): boolean }): Orphan[] {
   const out: Orphan[] = [];
+  const memo = new Map<string, Terminal>();
   for (const p of index.placed.values()) {
-    if (!reached.has(p.id)) out.push({ id: p.id, pluginId: p.pluginId, reason: reasonFor(index, p) });
+    if (!reached.has(p.id)) out.push({ id: p.id, pluginId: p.pluginId, reason: reasonFor(index, p, memo) });
   }
   return out.sort(byId);
 }

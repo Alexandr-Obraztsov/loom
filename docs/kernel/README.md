@@ -1,0 +1,273 @@
+# Ядро Loom (`@loom/kernel`)
+
+Платформенно-нейтральное ядро плагинов: всё, что умеет IDE, приходит из плагинов, а ядро
+отвечает за их порядок, связи и жизненный цикл. Ядро (`src/core`) не зависит от Node, DOM,
+`electron` и `react`; рантайм-зависимости — только `zod` и `semver`. Отдельные слои:
+`src/rpc` (межпроцессное взаимодействие) и `src/node` (загрузчик плагинов с диска,
+экспорт `@loom/kernel/node`). Плагины пишут на фасаде `@loom/sdk`.
+
+Полная спецификация: [docs/superpowers/specs/2026-11-04-loom-design.md](../superpowers/specs/2026-11-04-loom-design.md).
+
+## Понятия
+
+### Плагин
+
+Единица расширения: `id`, `version` (semver), зависимости и `setup(ctx)`. Всё, что плагин
+зарегистрировал через `ctx`, снимается при его выгрузке.
+
+```ts
+import { createKernel, definePlugin } from "@loom/kernel";
+
+const greeter = definePlugin({
+  id: "greeter",
+  version: "1.0.0",
+  dependsOn: { log: "^1.0.0" },          // обязательная зависимость
+  optionalDependsOn: { theme: "^2.0.0" }, // если есть — грузится раньше
+  setup(ctx) {
+    ctx.onDispose(() => console.log("bye"));
+  },
+});
+
+const kernel = createKernel();
+await kernel.reconcile([log, greeter]); // log — другой плагин
+```
+
+`reconcile(desired)` делает `desired` установленным набором и применяет разницу «вживую»
+(см. [гарантии reconcile](#гарантии-reconcile)). `scope: "project"` грузится, только если
+`KernelOptions.trust(plugin)` вернул `true`.
+
+### Сервис
+
+Типизированный объект, который один плагин предоставляет, другие используют.
+`ctx.use(ref)` возвращает **живой прокси**: он всегда ведёт к текущей реализации, даже
+после перезагрузки провайдера. Использовать можно только сервис плагина из `dependsOn` /
+присутствующих `optionalDependsOn` (иначе `UNDECLARED_DEPENDENCY`).
+
+```ts
+import { createServiceRef } from "@loom/kernel";
+
+interface Log { write(line: string): void }
+const LogRef = createServiceRef<Log>("log");
+
+const log = definePlugin({
+  id: "log", version: "1.0.0",
+  setup(ctx) { ctx.provide(LogRef, { write: (l) => console.log(l) }); },
+});
+// в greeter.setup: ctx.use(LogRef).write("hi");
+// ctx.decorate(LogRef, (prev) => ({ write: (l) => prev.write(`[x] ${l}`) })) — обёртка
+// ctx.override(LogRef, impl) — замена провайдера; спор двух провайдеров решает config.winners
+```
+
+### Расширение и вход (extension / input)
+
+Расширения образуют дерево UI. Узел объявляет **входы** (`inputs`), другие узлы
+прикрепляются к ним через `attachTo`. `factory` строит значение узла из входов и сервисов.
+
+```ts
+import { attach } from "@loom/kernel";
+
+const shell = definePlugin({
+  id: "shell", version: "1.0.0",
+  extensions: [
+    { id: "app", inputs: { panels: { multiple: true, required: true } }, factory: ({ inputs }) => inputs },
+    attach("app", "panels", { id: "files", title: "Files" }, { order: 1 }),
+  ],
+});
+// kernel.tree.root — корень; kernel.tree.orphans — неприкреплённые узлы с причиной
+```
+
+`InputSpec`: `multiple` (список или один узел), `required` (нет здорового узла →
+`EXTENSION_INPUT_MISMATCH`), `schema` (zod-проверка значения ребёнка). При перестройке
+узел переиспользуется (тот же объект, `factory` не вызывается), если не изменились
+определение, место, дети и версии использованных сервисов.
+
+### Хук (hook)
+
+Конвейер с цепочкой `next`. Порядок тапов: `priority` (больше — раньше), затем ограничения
+`before`/`after` (по id владельцев), затем ранг владельца в разрешённом порядке плагинов
+(ядро первым), затем порядок регистрации.
+
+```ts
+import { createHook } from "@loom/kernel";
+
+const Format = createHook<string, Promise<string>>("format"); // async по умолчанию
+// в setup: ctx.tap(Format, { priority: 10, before: ["prettier"] }, async (s, next) => (await next(s)).trim());
+const out = await kernel.run(Format, " x ", async (s) => s); // fallback — конец цепочки
+```
+
+Синхронный хук (`{ mode: "sync" }`) отвергает тап, вернувший Promise (`TAP_FAILED`).
+Противоречивые `before`/`after` образуют цикл: ребро, замыкающее цикл, отбрасывается и
+сообщается один раз (`TAP_FAILED` с обоими владельцами).
+
+### Событие (event)
+
+Синхронная шина без возвращаемого значения; слушатели вызываются по рангу владельца, затем
+по порядку подписки. Ошибка слушателя уходит в `kernel.error`, остальные слушатели
+всё равно вызываются.
+
+```ts
+// в setup: ctx.on<{ path: string }>("file.saved", (e) => console.log(e.path));
+//          ctx.emit("file.saved", { path: "/a.ts" });
+kernel.on("kernel.error", (e) => console.error(e));        // все сообщённые ошибки
+kernel.on("plugins.changed", (diff) => console.log(diff));  // { added, removed, reloaded, requiresRestart }
+```
+
+### Переопределения (overrides)
+
+`overrides` плагина заменяют расширение с тем же id из другого плагина. Без своего
+`attachTo`/`inputs` override меняет только `factory`, место и входы берутся у оригинала.
+
+```ts
+const darkFiles = definePlugin({
+  id: "dark-files", version: "1.0.0", dependsOn: { shell: "^1.0.0" },
+  overrides: [{ id: "app/panels/files", factory: () => ({ title: "Files (dark)" }) }],
+});
+// два override одного id без config.winners["app/panels/files"] → reconcile отклоняется с EXTENSION_CONFLICT
+```
+
+Конфиг дерева (`KernelConfig`): `rootId` (по умолчанию `"app"`), `disabled` (id выключенных
+расширений), `attach` (перевесить расширение), `winners` (кто выигрывает спор
+сервиса/расширения), `plugins[id]` (конфиг плагина → `ctx.config`).
+
+## Коды ошибок
+
+Все ошибки ядра — `LoomError` со стабильным `code`, списком `pluginIds` и `details`.
+
+| Код | Когда возникает |
+|---|---|
+| `MANIFEST_INVALID` | Определение плагина не прошло схему (id, semver, диапазоны, зависимость от себя, дубли id расширений); два плагина с одним id; загрузчик не смог прочитать `package.json`, импортировать или проверить пакет (`details.phase`) |
+| `DEPENDENCY_MISSING` | Нет обязательной зависимости; `PluginsService.enable` / `reload` неизвестного id |
+| `DEPENDENCY_VERSION` | Версия зависимости не попадает в диапазон |
+| `DEPENDENCY_CYCLE` | Цикл в `dependsOn`/`optionalDependsOn`; цикл `attachTo` в дереве (причина сироты) |
+| `UNTRUSTED` | `scope: "project"` без `trust` или `trust` вернул не `true` / бросил (сообщается в `kernel.error`, плагин пропускается) |
+| `SERVICE_CONFLICT` | Второй `provide`/`override` того же сервиса без `winners`; второй RPC-обработчик одной цели |
+| `SERVICE_MISSING` | Вызов через прокси сервиса без активного провайдера |
+| `UNDECLARED_DEPENDENCY` | Плагин использует сервис плагина, которого нет в его зависимостях |
+| `EXTENSION_CONFLICT` | Id расширения заявлен несколькими плагинами без `winners` (на этапе плана, до изменений); в вход без `multiple` пришло больше одного узла |
+| `EXTENSION_INPUT_MISMATCH` | Пустой `required`-вход; значение не прошло `schema`; сирота: нет `attachTo`, родитель отсутствует, выключен или без такого входа |
+| `EXTENSION_FACTORY_FAILED` | `factory` бросил; такой узел никогда не переиспользуется |
+| `SETUP_FAILED` | `setup` плагина бросил; reconcile откатился (`details.rollbackFailed` / `notRestored`, если откат не удался) |
+| `TAP_FAILED` | Тап, `match`, слушатель, декоратор, `onChange` или `dispose` бросил; sync-тап вернул Promise; `next()` вызван дважды; противоречивые `before`/`after`; удалённый тап на sync-хук |
+| `HOOK_TIMEOUT` | Удалённый тап не ответил за `timeoutMs` (по умолчанию 5000 мс); цепочка продолжается без него |
+| `INSTALL_DENIED` | `BeforeInstallHook` вернул `{ allow: false }` при `PluginsService.install` (и `reload` ещё не установленного id) |
+| `RPC_DISCONNECTED` | Вызов через закрытый endpoint; endpoint закрылся во время вызова или удалённого тапа |
+| `RPC_REMOTE_ERROR` | Ошибка на той стороне без `LoomError`; сообщение нельзя отправить (`structuredClone`); входящее сообщение некорректно |
+| `RPC_CANCELLED` | Вызов отменён через `AbortSignal`; удалённый тап больше не выполняется |
+| `DISPOSED` | Метод ядра после `dispose()`; метод `ctx` выгруженного плагина |
+
+## Гарантии reconcile
+
+- **Сериализация.** `reconcile`, `setConfig`, операции `PluginsService` и `dispose` идут в
+  одну очередь; следующий начинается после завершения предыдущего.
+- **Отказ до изменений.** `MANIFEST_INVALID`, `DEPENDENCY_*` и конфликты id расширений
+  без победителя (`EXTENSION_CONFLICT`, R11) обнаруживаются при планировании — запущенные
+  плагины не трогаются.
+- **Минимальная перезагрузка.** Перезагружается плагин, у которого сменился объект
+  определения, версия, набор присутствующих необязательных зависимостей или `plugins[id]`
+  конфига, и всё, что от него транзитивно зависит. Остальные продолжают работать.
+  Изменение `startup` попадает в `diff.requiresRestart`.
+- **Откат.** Если `setup` бросил, всё поднятое в этом проходе выгружается в обратном
+  порядке, восстанавливаются прежние сервисы, ранги, конфиг и `ctx.state`, прежние версии
+  поднимаются снова; итог — `SETUP_FAILED`, ядро в точности в прежнем состоянии. Если не
+  поднимается и прежняя версия, она и её зависимые остаются выключены, а ошибка несёт
+  `details.rollbackFailed: true, notRestored: [...]`.
+- **Стабильный порядок (R10).** Ничьи в хуках (после `priority`), порядок слушателей и
+  применения декораторов решаются рангом владельца в разрешённом порядке плагинов (ядро
+  первым), затем порядком регистрации. Перезагрузка плагина не сдвигает его регистрации.
+- **Батч хуков.** На время прохода порядок хуков не пересчитывается на каждый `tap`:
+  каждый затронутый хук упорядочивается один раз — при первом `run` или в конце прохода, до
+  события `plugins.changed`. Противоречие `before`/`after`, существовавшее только внутри
+  прохода (например, у выгруженного и снова поднятого плагина), не сообщается.
+- **События.** Успех — `plugins.changed` с diff, неудача — `plugins.failed`.
+
+## RPC
+
+`createRpcEndpoint(transport)` поверх любого `Transport` (`send` + `onMessage`, сообщения
+клонируемы через `structuredClone`; для тестов — `createMemoryTransportPair()`).
+
+- **Сервисы:** `exposeServices(kernel, endpoint, refs)` на одной стороне,
+  `remoteServicesPlugin({ id, endpoint, refs })` на другой — обычный плагин-провайдер,
+  каждый метод которого возвращает Promise с вызовом через endpoint.
+- **Хуки:** `exposeHooks(kernel, endpoint, hooks)` + `tapRemote(ctx, endpoint, hook, opts, fn)`.
+  Только async-хуки. Удалённый тап владеет `remote:<plugin id>` и снимается при `untap`,
+  выгрузке плагина или закрытии endpoint.
+- **Таймауты:** сторона хука ждёт ответа удалённого тапа `timeoutMs` (по умолчанию 5000 мс),
+  затем сообщает `HOOK_TIMEOUT` и продолжает цепочку без него.
+- **bye (R14):** `endpoint.close()` шлёт `{ type: "bye" }`; получатель обрабатывает его как
+  закрытие транспорта: ожидающие вызовы получают `RPC_DISCONNECTED`, обработчики — abort.
+- **Проверка протокола (R13):** каждое входящее сообщение проверяется по схеме;
+  некорректное отбрасывается и сообщается (`onProtocolError` / `kernel.error`), исключение
+  из колбэка транспорта не вылетает.
+- **Отмена:** `call(..., signal)` с `AbortSignal` шлёт `cancel`; поздний ответ игнорируется.
+
+## Загрузчик (`@loom/kernel/node`)
+
+```ts
+import { loadPluginsFromDirs } from "@loom/kernel/node";
+
+const { plugins, failures } = await loadPluginsFromDirs(
+  [{ path: "/app/plugins", scope: "builtin" }, { path: "./.loom/plugins", scope: "project" }],
+  { entry: "main" }, // или "renderer"; cacheBust: true — перечитать entry-файл
+);
+await kernel.reconcile(plugins.map((p) => p.definition));
+```
+
+Пакет — подкаталог с `package.json`, где `"loom": { "id": "...", "main": "./dist/main.js" }`;
+default-экспорт entry-файла — определение плагина. Порядок результата — порядок групп,
+затем имя каталога. Битый пакет — запись в `failures` (`MANIFEST_INVALID`,
+`details.phase`: `dir` | `package-json` | `import` | `validate`), а не исключение.
+Симлинки на каталоги разрешаются. Проверка, что entry внутри пакета, лексическая — защита
+от опечаток, не песочница.
+
+## Производительность
+
+Замеры: Apple M4 (10 ядер), 16 ГБ, macOS 26 (Darwin 25.6), Node 24.9.0, Vitest 4.1.12.
+Команда: `pnpm bench` (`vitest bench`, `packages/kernel/bench/*.bench.ts`), среднее.
+
+| Бенчмарк | Среднее | Ограничитель CI (`pnpm test:perf`) |
+|---|---|---|
+| reconcile 200 плагинов по 3 зависимости, холодный | 1,15 мс | < 50 мс |
+| перезагрузка 1 листового плагина из 200 | 0,60 мс | < 5 мс |
+| run хука, 20 async-тапов | 0,6 мкс | < 50 мкс (среднее по 10 000) |
+| вызов сервиса напрямую | 1,5 нс | — |
+| вызов через живой прокси | 18 нс | накладные < 5× прямого вызова на том же call site |
+| buildTree, 2000 расширений, холодный | 1,6–2,7 мс | — |
+| перестройка после смены 1 листа | 0,8 мс | `factory` вызывается ≤ глубина + 1 раз |
+
+Масштабирование (отдельный прогон на собранном `dist`, те же плагины, что в бенчмарке):
+
+| Плагинов | Холодный reconcile | Перезагрузка листа | dispose |
+|---|---|---|---|
+| 200 | 9 мс (первый прогон, вместе с JIT) | 2,3 мс | 0,5 мс |
+| 2000 | 34 мс | 14 мс | 3 мс |
+| 4000 | 60 мс (до оптимизации — 3,0 с) | 24 мс | 5 мс (до — 2,9 с) |
+
+Дополнительные ограничители CI: холодный reconcile + dispose 2000 плагинов < 250 мс;
+причины для оторванной цепочки из 3000 расширений < 300 мс (сейчас 13 мс; до оптимизации
+44 с — рост был кубическим).
+
+Про прокси: прямой вызов на мономорфном call site V8 встраивает (1,5 нс), прокси — нет:
+одна ловушка `Proxy.get` стоит около 7 нс, плюс проверка версии и привязанная обёртка
+метода. Поэтому ограничитель сравнивает прокси с прямым вызовом через один и тот же call
+site (прямой ≈ 4,2 нс, прокси 18–22 нс, накладные ≈ 4,3×), а запускается после тестов ядра,
+когда инлайн-кэши прокси уже мегаморфны, как в приложении.
+
+Ограничители не запускаются под `pnpm test:coverage`: инструментирование v8 искажает
+соотношения в разы (прокси/прямой ≈ 8×).
+
+## Известные ограничения
+
+- **Глубина дерева расширений** ≈ 3000 уровней: разрешение дерева рекурсивно, на глубине
+  4000 стек по умолчанию переполняется (`RangeError`). Для UI-деревьев недостижимо.
+- **Ошибки сирот в цикле `attachTo`** перечисляют цепочку (`details.chain`) от каждой
+  сироты, поэтому длинная цепь, висящая на цикле, даёт квадратичный объём ошибок.
+  Обычные оторванные цепочки обрабатываются за линейное время.
+- **Подписка на один тип события** копирует его список (copy-on-write ради стабильного
+  снимка во время `emit`): n подписчиков одного типа стоят O(n²) копирований — около
+  10 мс на 4000.
+- **`run` внутри `setup`** упорядочивает хук немедленно: если каждый из n плагинов и тапает,
+  и запускает один хук в `setup`, батч не помогает и упорядочивание стоит O(n² log n).
+- **Определения плагинов неизменяемы:** reconcile сравнивает их по ссылке; изменение
+  объекта на месте не считается изменением.
+- **Кэш semver** хранит до 4096 результатов проверок версий/диапазонов и сбрасывается
+  целиком при заполнении.

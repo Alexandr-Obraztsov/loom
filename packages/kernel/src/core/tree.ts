@@ -1,6 +1,6 @@
 import type { ZodType } from "zod";
 import { LoomError } from "./errors.js";
-import { childKey, findOrphans, indexEntries } from "./tree-index.js";
+import { findOrphans, indexEntries } from "./tree-index.js";
 import type { Orphan, Placed, TreeEntry, TreeIndex } from "./tree-index.js";
 import type { ExtensionContext, InputSpec, ResolvedNode } from "./types.js";
 
@@ -25,8 +25,9 @@ interface Fingerprint {
   readonly pluginId: string;
   readonly ext: Placed["ext"];
   readonly inputs: Placed["inputs"];
-  readonly attachKey: string;
-  readonly conflictKey: string;
+  readonly attachId: string | undefined;
+  readonly attachInput: string | undefined;
+  readonly conflict: Placed["conflict"];
   readonly schema: ZodType | undefined;
   readonly kids: readonly ResolvedNode[];
 }
@@ -34,12 +35,16 @@ interface Fingerprint {
 const fingerprints = new WeakMap<ResolvedNode, Fingerprint>();
 /** Service ref id -> service version seen by the factory when the node was created. */
 const usedServices = new WeakMap<ResolvedNode, ReadonlyMap<string, number>>();
+/** Every node of a built tree by id, keyed by its root, so the next build need not walk the old tree. */
+const nodesOf = new WeakMap<ResolvedNode, ReadonlyMap<string, ResolvedNode>>();
+const NO_NODES: ReadonlyMap<string, ResolvedNode> = new Map();
 
 interface Pass {
   readonly index: TreeIndex;
   readonly use: ExtensionContext<never>["use"];
   readonly previous: ReadonlyMap<string, ResolvedNode>;
-  readonly reached: Set<string>;
+  /** Nodes of the tree being built, by id (the reached extensions). */
+  readonly nodes: Map<string, ResolvedNode>;
   readonly serviceVersion: ((refId: string) => number) | undefined;
 }
 
@@ -52,11 +57,16 @@ function childrenOf(node: ResolvedNode): ResolvedNode[] {
   return out;
 }
 
-function sameFingerprint(a: Fingerprint, b: Fingerprint): boolean {
+function sameArray<T>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean {
+  if (a === b) return true;
+  return a !== undefined && b !== undefined && a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+function sameFingerprint(f: Fingerprint, p: Placed, schema: ZodType | undefined, kids: readonly ResolvedNode[]): boolean {
   return (
-    a.pluginId === b.pluginId && a.ext === b.ext && a.inputs === b.inputs && a.attachKey === b.attachKey &&
-    a.conflictKey === b.conflictKey && a.schema === b.schema &&
-    a.kids.length === b.kids.length && a.kids.every((k, i) => k === b.kids[i])
+    f.pluginId === p.pluginId && f.ext === p.ext && f.inputs === p.inputs && f.schema === schema &&
+    f.attachId === p.attach?.id && f.attachInput === p.attach?.input &&
+    sameArray(f.conflict, p.conflict) && sameArray(f.kids, kids)
   );
 }
 
@@ -130,31 +140,31 @@ function isStale(prev: ResolvedNode, pass: Pass): boolean {
 }
 
 function resolveNode(p: Placed, schema: ZodType | undefined, pass: Pass): ResolvedNode {
-  pass.reached.add(p.id);
   const byInput = new Map<string, ResolvedNode[]>();
   const kids: ResolvedNode[] = [];
+  const attached = pass.index.children.get(p.id);
   for (const [name, spec] of Object.entries(p.inputs ?? {})) {
-    const list = (pass.index.children.get(childKey(p.id, name)) ?? []).map((c) => resolveNode(c, spec.schema, pass));
+    const list: ResolvedNode[] = [];
+    for (const c of attached?.get(name) ?? []) {
+      const child = resolveNode(c, spec.schema, pass);
+      list.push(child);
+      kids.push(child);
+    }
     byInput.set(name, list);
-    kids.push(...list);
   }
-  const print: Fingerprint = {
-    pluginId: p.pluginId, ext: p.ext, inputs: p.inputs, schema, kids,
-    attachKey: p.attach ? childKey(p.attach.id, p.attach.input) : "",
-    conflictKey: p.conflict?.join("\u0000") ?? "",
-  };
   const prev = pass.previous.get(p.id);
   const prevPrint = prev && fingerprints.get(prev);
-  if (prev && prevPrint && sameFingerprint(prevPrint, print) && !isStale(prev, pass)) return prev;
-  const node = build(p, byInput, schema, pass);
-  fingerprints.set(node, print);
+  let node: ResolvedNode;
+  if (prev && prevPrint && sameFingerprint(prevPrint, p, schema, kids) && !isStale(prev, pass)) node = prev;
+  else {
+    node = build(p, byInput, schema, pass);
+    fingerprints.set(node, {
+      pluginId: p.pluginId, ext: p.ext, inputs: p.inputs, schema, kids,
+      attachId: p.attach?.id, attachInput: p.attach?.input, conflict: p.conflict,
+    });
+  }
+  pass.nodes.set(p.id, node);
   return node;
-}
-
-function collectNodes(node: ResolvedNode | undefined, into: Map<string, ResolvedNode>): void {
-  if (!node) return;
-  into.set(node.id, node);
-  for (const c of childrenOf(node)) collectNodes(c, into);
 }
 
 function collectErrors(node: ResolvedNode | undefined, into: LoomError[]): void {
@@ -179,12 +189,13 @@ export function buildTree(
   serviceVersion?: (refId: string) => number,
 ): TreeResult {
   const index = indexEntries(entries, config);
-  const prevNodes = new Map<string, ResolvedNode>();
-  collectNodes(previous?.root, prevNodes);
-  const pass: Pass = { index, use, previous: prevNodes, reached: new Set(), serviceVersion };
+  // a hand-made `previous` has no fingerprints, so nothing of it could be reused anyway
+  const prevNodes = (previous?.root && nodesOf.get(previous.root)) ?? NO_NODES;
+  const pass: Pass = { index, use, previous: prevNodes, nodes: new Map(), serviceVersion };
   const rootPlaced = index.placed.get(index.rootId);
   const root = rootPlaced ? resolveNode(rootPlaced, undefined, pass) : undefined;
-  const orphans = findOrphans(index, pass.reached);
+  if (root) nodesOf.set(root, pass.nodes);
+  const orphans = findOrphans(index, pass.nodes);
   if (previous && previous.root === root && sameOrphans(previous.orphans, orphans)) return previous;
   const errors: LoomError[] = [];
   collectErrors(root, errors);

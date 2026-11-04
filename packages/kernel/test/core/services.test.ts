@@ -309,3 +309,19 @@ describe("service registry (cont.)", () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("service registry owner bookkeeping", () => {
+  it("removeOwner forgets the consumer's proxies and leaves refs it no longer holds untouched", () => {
+    const r = make();
+    const off = r.provide(ref, impl("a"), "A");
+    const p = r.use(ref, "B", any);
+    r.removeOwner("B");
+    expect(r.use(ref, "B", any)).not.toBe(p);
+    off();
+    const v = r.version(ref);
+    r.removeOwner("A");
+    expect(r.version(ref)).toBe(v);
+    r.provide(ref, impl("x"), "X");
+    expect(r.use(ref, "B", any).greet("n")).toBe("x:n");
+  });
+});

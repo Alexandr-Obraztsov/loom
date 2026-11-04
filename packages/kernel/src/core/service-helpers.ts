@@ -15,9 +15,9 @@ export interface Resolved {
   readonly owner: string | undefined;
   /** Active registration's impl before decorators; undefined when there is no provider. */
   readonly base: object | undefined;
-  decorated?: object;
-  failure?: LoomError;
-  readonly wrappers: Map<PropertyKey, unknown>;
+  /** Both start undefined (never absent), so every Resolved has one shape and the proxy hot path stays monomorphic. */
+  decorated: object | undefined;
+  failure: LoomError | undefined;
 }
 export interface RefState {
   readonly id: string;
@@ -54,10 +54,10 @@ export function removeFrom<E>(list: E[], entry: E): boolean {
   return true;
 }
 
-/** Removes every registration of `owner`; returns ids of refs that changed. */
-export function stripOwner(states: Map<string, RefState>, owner: string): string[] {
+/** Removes every registration of `owner` from `states`; returns ids of refs that changed. */
+export function stripOwner(states: Iterable<RefState>, owner: string): string[] {
   const changed: string[] = [];
-  for (const s of states.values()) {
+  for (const s of states) {
     const lists = [s.provides, s.overrides, s.decorators] as { owner: string }[][];
     const before = lists.reduce((n, l) => n + l.length, 0);
     for (const list of lists) {
@@ -66,6 +66,13 @@ export function stripOwner(states: Map<string, RefState>, owner: string): string
     if (lists.reduce((n, l) => n + l.length, 0) !== before) changed.push(s.id);
   }
   return changed;
+}
+
+/** Adds `value` to the set kept under `key`. */
+export function index<K, V>(map: Map<K, Set<V>>, key: K, value: V): void {
+  let set = map.get(key);
+  if (!set) map.set(key, (set = new Set()));
+  set.add(value);
 }
 
 /** Hands each error to `sink`; returns the errors the sink itself threw. */

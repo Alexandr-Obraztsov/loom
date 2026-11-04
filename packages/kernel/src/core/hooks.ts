@@ -1,5 +1,8 @@
 import { LoomError } from "./errors.js";
 import { arrange } from "./hook-order.js";
+import type { RankOf } from "./hook-order.js";
+import { report, runChain } from "./hook-run.js";
+import type { Runtime, Tap, TapFn } from "./hook-run.js";
 import type { HookRef, Next, TapOptions } from "./types.js";
 
 export interface HookRegistry {
@@ -16,6 +19,13 @@ export interface HookRegistry {
   taps(hook: HookRef<unknown, unknown>): readonly { readonly owner: string }[];
   /** Recomputes every hook's order; call after the ranks returned by `rankOf` changed. */
   reorder(): void;
+  /**
+   * Batches order recomputation: until the returned function is called (calls nest), tap, removal
+   * and reorder only mark hooks stale, and each stale hook is ordered once, on its next `run` or
+   * `taps` or when the outermost batch ends. A contradiction that exists only inside the batch is
+   * never reported. Ordering n taps one by one costs O(n² log n); batched it is O(n log n).
+   */
+  defer(): () => void;
 }
 
 export interface HookRegistryOptions {
@@ -24,197 +34,23 @@ export interface HookRegistryOptions {
   readonly rankOf?: (owner: string) => number;
 }
 
-type TapFn = (ctx: unknown, next: Next<unknown, unknown>) => unknown;
-
-interface Tap {
-  readonly hookId: string;
-  readonly owner: string;
-  readonly priority: number;
-  readonly before: readonly string[];
-  readonly after: readonly string[];
-  readonly match: ((ctx: unknown) => boolean) | undefined;
-  readonly fn: TapFn;
-  readonly seq: number;
-}
-
 interface HookState {
-  readonly taps: Tap[];
-  /** Immutable snapshot, replaced (never mutated) on add/remove so in-flight runs keep their view. */
+  readonly id: string;
+  /** In registration order; a Set so removing one tap is O(1). */
+  readonly taps: Set<Tap>;
+  /** Immutable snapshot, replaced (never mutated) on recompute so in-flight runs keep their view. */
   ordered: readonly Tap[];
   /** Keys of edges dropped by the last computation, so each contradiction is reported once. */
   dropped: ReadonlySet<string>;
-}
-
-interface Runtime {
-  readonly onError: (err: LoomError) => void;
-  /** Registry-made TAP_FAILED errors and fallback errors: they propagate by identity, never re-wrapped. */
-  readonly passthrough: WeakSet<object>;
-}
-
-function isThenable(v: unknown): v is PromiseLike<unknown> {
-  return (
-    (typeof v === "object" || typeof v === "function") &&
-    v !== null &&
-    typeof (v as { then?: unknown }).then === "function"
-  );
-}
-
-function describe(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function report(rt: Runtime, err: LoomError): LoomError {
-  rt.passthrough.add(err);
-  try {
-    rt.onError(err);
-  } catch {
-    // a failing error sink must not mask the original failure
-  }
-  return err;
-}
-
-/** Wraps once: registry-made TAP_FAILED and fallback errors pass through (by identity); everything else becomes TAP_FAILED for `tap`. */
-function wrap(rt: Runtime, tap: Tap, e: unknown): unknown {
-  if (typeof e === "object" && e !== null && rt.passthrough.has(e)) return e;
-  return report(
-    rt,
-    new LoomError(
-      "TAP_FAILED",
-      `Tap of "${tap.owner}" on hook "${tap.hookId}" failed: ${describe(e)}`,
-      {
-        pluginIds: [tap.owner],
-        cause: e,
-      },
-    ),
-  );
-}
-
-function raise(isAsync: boolean, err: unknown): unknown {
-  // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- re-raises the original value
-  if (isAsync) return Promise.reject(err);
-  throw err;
-}
-
-function invoke(
-  rt: Runtime,
-  tap: Tap,
-  ctx: unknown,
-  next: Next<unknown, unknown>,
-  isAsync: boolean,
-): unknown {
-  let result: unknown;
-  try {
-    result = tap.fn(ctx, next);
-  } catch (e) {
-    return raise(isAsync, wrap(rt, tap, e));
-  }
-  if (isAsync) {
-    if (!isThenable(result)) return result;
-    return Promise.resolve(result).then(undefined, (e: unknown) => {
-      throw wrap(rt, tap, e);
-    });
-  }
-  if (isThenable(result)) {
-    if (result instanceof Promise) result.catch(() => undefined);
-    throw report(
-      rt,
-      new LoomError(
-        "TAP_FAILED",
-        `Tap of "${tap.owner}" on sync hook "${tap.hookId}" returned a Promise`,
-        {
-          pluginIds: [tap.owner],
-        },
-      ),
-    );
-  }
-  return result;
-}
-
-function callFallback(
-  rt: Runtime,
-  hookId: string,
-  fallback: (ctx: unknown) => unknown,
-  ctx: unknown,
-  isAsync: boolean,
-): unknown {
-  const own = (e: unknown): Error => {
-    const err =
-      typeof e === "object" && e !== null
-        ? e
-        : new Error("Fallback threw a non-object value", { cause: e });
-    rt.passthrough.add(err);
-    return err as Error;
-  };
-  let result: unknown;
-  try {
-    result = fallback(ctx);
-  } catch (e) {
-    return raise(isAsync, own(e));
-  }
-  if (isAsync) {
-    if (!isThenable(result)) return result;
-    return Promise.resolve(result).then(undefined, (e: unknown) => {
-      throw own(e);
-    });
-  }
-  if (isThenable(result)) {
-    if (result instanceof Promise) result.catch(() => undefined);
-    throw report(
-      rt,
-      new LoomError("TAP_FAILED", `Fallback of sync hook "${hookId}" returned a Promise`, {
-        pluginIds: [],
-      }),
-    );
-  }
-  return result;
-}
-
-function runChain(
-  rt: Runtime,
-  hook: HookRef<unknown, unknown>,
-  list: readonly Tap[],
-  ctx: unknown,
-  fallback: (ctx: unknown) => unknown,
-): unknown {
-  const isAsync = hook.mode === "async";
-  const step = (from: number, c: unknown): unknown => {
-    for (let i = from; i < list.length; i++) {
-      const tap = list[i];
-      if (tap === undefined) break;
-      if (tap.match !== undefined) {
-        try {
-          if (!tap.match(c)) continue;
-        } catch (e) {
-          return raise(isAsync, wrap(rt, tap, e));
-        }
-      }
-      let called = false;
-      const next: Next<unknown, unknown> = (nextCtx) => {
-        if (called) {
-          const err = new LoomError(
-            "TAP_FAILED",
-            `Tap of "${tap.owner}" on hook "${hook.id}" called next() more than once`,
-            {
-              pluginIds: [tap.owner],
-            },
-          );
-          return raise(isAsync, report(rt, err));
-        }
-        called = true;
-        return step(i + 1, nextCtx);
-      };
-      return invoke(rt, tap, c, next, isAsync);
-    }
-    return callFallback(rt, hook.id, fallback, c, isAsync);
-  };
-  return step(0, ctx);
+  /** Taps changed since `ordered` was computed (only while a batch is open). */
+  stale: boolean;
 }
 
 const EMPTY: readonly Tap[] = [];
 
 /** Recomputes the order of one hook; reports each newly dropped contradictory constraint once. */
-function refreshOrder(rt: Runtime, state: HookState, rankOf: ((owner: string) => number) | undefined): void {
-  const { order, dropped } = arrange(state.taps, rankOf);
+function refreshOrder(rt: Runtime, state: HookState, rankOf: RankOf | undefined): void {
+  const { order, dropped } = arrange([...state.taps], rankOf);
   for (const [key, [holder, other]] of dropped) {
     if (state.dropped.has(key)) continue;
     const owners = [...new Set([holder.owner, other.owner])];
@@ -229,6 +65,65 @@ function refreshOrder(rt: Runtime, state: HookState, rankOf: ((owner: string) =>
   }
   state.dropped = new Set(dropped.keys());
   state.ordered = order;
+  state.stale = false;
+}
+
+interface Ordering {
+  /** After taps of `state` changed: order it now, or (inside a batch) mark it stale. Drops an empty hook. */
+  readonly changed: (state: HookState) => void;
+  /** The current order of `state`, computing it first if stale. */
+  readonly settled: (state: HookState | undefined) => readonly Tap[];
+  readonly defer: () => () => void;
+}
+
+function createOrdering(rt: Runtime, hooks: Map<string, HookState>, rankOf: RankOf | undefined): Ordering {
+  const stale = new Set<HookState>();
+  let batches = 0;
+  const settled = (state: HookState | undefined): readonly Tap[] => {
+    if (state === undefined) return EMPTY;
+    if (state.stale) {
+      stale.delete(state);
+      refreshOrder(rt, state, rankOf);
+    }
+    return state.ordered;
+  };
+  return {
+    changed: (state) => {
+      if (state.taps.size === 0) {
+        // only the registered state of a hook id can hold taps
+        hooks.delete(state.id);
+        stale.delete(state);
+      } else if (batches === 0) refreshOrder(rt, state, rankOf);
+      else {
+        state.stale = true;
+        stale.add(state);
+      }
+    },
+    settled,
+    defer: () => {
+      batches++;
+      let open = true;
+      return () => {
+        if (!open) return;
+        open = false;
+        if (--batches > 0) return;
+        for (const state of [...stale]) settled(state);
+      };
+    },
+  };
+}
+
+function newTap<C, R>(hookId: string, owner: string, o: TapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R, seq: number): Tap {
+  return {
+    hookId,
+    owner,
+    priority: o.priority ?? 0,
+    before: o.before ?? [],
+    after: o.after ?? [],
+    match: o.match as ((ctx: unknown) => boolean) | undefined,
+    fn: fn as unknown as TapFn,
+    seq,
+  };
 }
 
 export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
@@ -239,26 +134,10 @@ export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
     passthrough: new WeakSet(),
   };
   const hooks = new Map<string, HookState>();
+  /** Owner -> its taps, so removing an owner touches only those. */
+  const byOwner = new Map<string, Set<Tap>>();
+  const { changed, settled, defer } = createOrdering(rt, hooks, opts.rankOf);
   let seq = 0;
-  const rankOf = opts.rankOf;
-
-  const refresh = (state: HookState): void => {
-    refreshOrder(rt, state, rankOf);
-  };
-
-  const detach = (state: HookState, id: string, match: (t: Tap) => boolean): void => {
-    let changed = false;
-    for (let i = state.taps.length - 1; i >= 0; i--) {
-      const t = state.taps[i];
-      if (t !== undefined && match(t)) {
-        state.taps.splice(i, 1);
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    if (state.taps.length === 0) hooks.delete(id);
-    else refresh(state);
-  };
 
   return {
     tap<C, R>(
@@ -269,38 +148,47 @@ export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
     ): () => void {
       let state = hooks.get(hook.id);
       if (state === undefined) {
-        state = { taps: [], ordered: EMPTY, dropped: new Set() };
+        state = { id: hook.id, taps: new Set(), ordered: EMPTY, dropped: new Set(), stale: false };
         hooks.set(hook.id, state);
       }
-      const tap: Tap = {
-        hookId: hook.id,
-        owner,
-        priority: o.priority ?? 0,
-        before: o.before ?? [],
-        after: o.after ?? [],
-        match: o.match as ((ctx: unknown) => boolean) | undefined,
-        fn: fn as unknown as TapFn,
-        seq: seq++,
-      };
-      state.taps.push(tap);
-      refresh(state);
-      const owned = state;
+      const tap = newTap(hook.id, owner, o, fn, seq++);
+      state.taps.add(tap);
+      let owned = byOwner.get(owner);
+      if (!owned) byOwner.set(owner, (owned = new Set()));
+      owned.add(tap);
+      changed(state);
+      const home = state;
       return () => {
-        detach(owned, hook.id, (t) => t === tap);
+        if (!home.taps.delete(tap)) return;
+        owned.delete(tap);
+        // a registered tap's owner set is still the indexed one
+        if (owned.size === 0) byOwner.delete(owner);
+        changed(home);
       };
     },
     run<C, R>(hook: HookRef<C, R>, ctx: C, fallback: (ctx: C) => R): R {
-      const list = hooks.get(hook.id)?.ordered ?? EMPTY;
+      const list = settled(hooks.get(hook.id));
       return runChain(rt, hook, list, ctx, fallback as (ctx: unknown) => unknown) as R;
     },
     removeOwner(owner: string): void {
-      for (const [id, state] of [...hooks]) detach(state, id, (t) => t.owner === owner);
+      const owned = byOwner.get(owner);
+      if (!owned) return;
+      byOwner.delete(owner);
+      const touched = new Set<HookState>();
+      for (const tap of owned) {
+        // a tap still indexed by its owner is registered, so its hook's state exists
+        const state = hooks.get(tap.hookId) as HookState;
+        state.taps.delete(tap);
+        touched.add(state);
+      }
+      for (const state of touched) changed(state);
     },
     taps(hook: HookRef<unknown, unknown>): readonly { readonly owner: string }[] {
-      return hooks.get(hook.id)?.ordered ?? EMPTY;
+      return settled(hooks.get(hook.id));
     },
     reorder(): void {
-      for (const state of hooks.values()) refresh(state);
+      for (const state of hooks.values()) changed(state);
     },
+    defer,
   };
 }

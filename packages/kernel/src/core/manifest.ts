@@ -1,13 +1,13 @@
-import { validRange, valid } from "semver";
 import { z } from "zod";
 import { LoomError } from "./errors.js";
 import type { ExtensionDefinition, PluginDefinition } from "./types.js";
+import { isRange, isVersion } from "./versions.js";
 
 const fn = z.custom<(...args: never[]) => unknown>((v) => typeof v === "function", "must be a function");
 
 const rangeMap = z.record(
   z.string(),
-  z.string().refine((r) => validRange(r) !== null, "invalid semver range"),
+  z.string().refine(isRange, "invalid semver range"),
 );
 
 const inputSpec = z.object({
@@ -37,7 +37,7 @@ function uniqueIds(list: readonly ExtensionDefinition[] | undefined, key: string
 const schema = z
   .object({
     id: z.string().regex(/^[a-z][a-z0-9-]*(\/[a-z0-9-]+)?$/, "invalid plugin id"),
-    version: z.string().refine((v) => valid(v) !== null, "invalid semver version"),
+    version: z.string().refine(isVersion, "invalid semver version"),
     scope: z.enum(["builtin", "user", "project"]).optional(),
     dependsOn: rangeMap.optional(),
     optionalDependsOn: rangeMap.optional(),

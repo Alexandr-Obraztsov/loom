@@ -18,7 +18,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "echo \"no benchmarks yet\""
+    "bench": "vitest bench --run --root ../.. --project kernel"
   },
   "dependencies": {
     "semver": "^7.8.6",

@@ -17,10 +17,6 @@ export interface Arranged<T extends Orderable> {
 export type RankOf = (owner: string) => number;
 const NO_RANK: RankOf = () => 0;
 
-function compareBy(rankOf: RankOf): (a: Orderable, b: Orderable) => number {
-  return (a, b) => b.priority - a.priority || rankOf(a.owner) - rankOf(b.owner) || a.seq - b.seq;
-}
-
 /** Min-heap of rank indexes (rank 0 = highest priority, lowest owner rank, earliest registration). */
 class RankHeap {
   private readonly items: number[] = [];
@@ -61,12 +57,18 @@ class RankHeap {
  * rank, then registration).
  */
 export function arrange<T extends Orderable>(taps: readonly T[], rankOf: RankOf = NO_RANK): Arranged<T> {
-  const ranked = taps.slice().sort(compareBy(rankOf));
-  const declaring =
-    rankOf === NO_RANK ? taps : taps.slice().sort((a, b) => rankOf(a.owner) - rankOf(b.owner) || a.seq - b.seq);
+  // owner ranks are looked up once per tap, not once per comparison
+  const rank = new Map<T, number>(taps.map((t) => [t, rankOf(t.owner)]));
+  const rankDiff = (a: T, b: T): number => (rank.get(a) as number) - (rank.get(b) as number);
+  const ranked = taps.slice().sort((a, b) => b.priority - a.priority || rankDiff(a, b) || a.seq - b.seq);
+  const declaring = rankOf === NO_RANK ? taps : taps.slice().sort((a, b) => rankDiff(a, b) || a.seq - b.seq);
   const indexOf = new Map<T, number>(ranked.map((t, i) => [t, i]));
   const byOwner = new Map<string, T[]>();
-  for (const t of taps) byOwner.set(t.owner, [...(byOwner.get(t.owner) ?? []), t]);
+  for (const t of taps) {
+    const list = byOwner.get(t.owner);
+    if (list) list.push(t);
+    else byOwner.set(t.owner, [t]);
+  }
   const succ: number[][] = ranked.map(() => []);
   const seen = new Set<string>();
   const dropped = new Map<string, readonly [T, T]>();

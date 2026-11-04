@@ -1,5 +1,5 @@
 import { LoomError } from "./errors.js";
-import { callListeners, conflictError, deliver, rankSort, removeFrom, reorderAll, stripOwner } from "./service-helpers.js";
+import { callListeners, conflictError, deliver, index, rankSort, removeFrom, reorderAll, stripOwner } from "./service-helpers.js";
 import type { Decorator, Impl, RefState, Resolved } from "./service-helpers.js";
 import type { ServiceRef } from "./types.js";
 
@@ -38,6 +38,7 @@ interface ProxyAccess {
   checkedVersion: number;
 }
 type Winners = Readonly<Record<string, string>>;
+type Members = Record<PropertyKey, unknown>;
 
 function stateOf(states: Map<string, RefState>, id: string): RefState {
   let s = states.get(id);
@@ -59,7 +60,8 @@ function resolve(s: RefState, winners: Winners): Resolved {
     version: s.version,
     owner: entry?.owner,
     base: entry?.impl,
-    wrappers: new Map(),
+    decorated: undefined,
+    failure: undefined,
   };
   s.resolved = resolved;
   return resolved;
@@ -102,7 +104,7 @@ function checkAccess(s: RefState, owner: string, access: ProxyAccess): void {
 
 function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object {
   const { consumer } = access;
-  const current = (): { r: Resolved; impl: object } => {
+  const resolveChecked = (): object => {
     const r = resolve(s, winners);
     if (r.base === undefined || r.owner === undefined) {
       throw new LoomError(
@@ -115,39 +117,59 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
       checkAccess(s, r.owner, access);
       access.checkedVersion = r.version;
     }
-    return { r, impl: materialize(s, r as Resolved & { base: object }) };
+    return materialize(s, r as Resolved & { base: object });
+  };
+  /** The active (decorated) implementation; afterwards `s.resolved` is its Resolved. Hot path: no calls, no allocation. */
+  const current = (): object => {
+    const r = s.resolved;
+    if (r?.version === s.version && access.checkedVersion === r.version && r.decorated !== undefined) return r.decorated;
+    return resolveChecked();
   };
   const readOnly = (what: string) => (): never => {
     throw new TypeError(`cannot ${what} on service "${s.id}" through its proxy`);
   };
-  const wrapper = (r: Resolved, prop: PropertyKey): unknown => {
-    let w = r.wrappers.get(prop);
+  /** This proxy's forwarding functions for one Resolved (so their identity changes with the implementation). */
+  let wrappersOf: Resolved | undefined;
+  let wrappers = new Map<PropertyKey, unknown>();
+  /** One-entry cache in front of `wrappers`: repeated calls of one method skip the map. */
+  let lastProp: PropertyKey | undefined;
+  let lastWrapper: unknown;
+  const wrapper = (prop: PropertyKey): unknown => {
+    if (wrappersOf !== s.resolved) {
+      wrappersOf = s.resolved;
+      wrappers = new Map();
+      lastProp = undefined;
+    } else if (prop === lastProp) return lastWrapper;
+    let w = wrappers.get(prop);
     if (!w) {
+      // re-resolves on every call, so a held reference keeps forwarding to the active implementation
       w = (...args: unknown[]): unknown => {
-        const cur = current().impl;
-        const fn: unknown = Reflect.get(cur, prop, cur);
+        const cur = current() as Members;
+        const fn = cur[prop];
         if (typeof fn !== "function") {
           throw new TypeError(`"${String(prop)}" of service "${s.id}" is no longer a function`);
         }
         const result: unknown = Reflect.apply(fn, cur, args);
         return result;
       };
-      r.wrappers.set(prop, w);
+      wrappers.set(prop, w);
     }
+    lastProp = prop;
+    lastWrapper = w;
     return w;
   };
   return new Proxy<object>(
     {},
     {
       get(_t, prop) {
-        const { r, impl } = current();
-        const raw: unknown = Reflect.get(impl, prop, impl);
-        return typeof raw === "function" ? wrapper(r, prop) : raw;
+        // `impl[prop]` is `Reflect.get(impl, prop, impl)`, and markedly faster on this hot path
+        const raw = (current() as Members)[prop];
+        return typeof raw === "function" ? wrapper(prop) : raw;
       },
-      has: (_t, prop) => Reflect.has(current().impl, prop),
-      ownKeys: () => Reflect.ownKeys(current().impl),
+      has: (_t, prop) => Reflect.has(current(), prop),
+      ownKeys: () => Reflect.ownKeys(current()),
       getOwnPropertyDescriptor(_t, prop) {
-        const d = Reflect.getOwnPropertyDescriptor(current().impl, prop);
+        const d = Reflect.getOwnPropertyDescriptor(current(), prop);
         return d && { ...d, configurable: true };
       },
       set: readOnly("set a property"),
@@ -188,6 +210,9 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
   const states = new Map<string, RefState>();
   const proxies: ProxyCache = new Map();
   const listeners = new Set<(refId: string) => void>();
+  /** Owner -> refs it registered on, and consumer -> refs it holds proxies of: removing an owner touches only those. */
+  const registered = new Map<string, Set<RefState>>();
+  const consumed = new Map<string, Set<string>>();
   const get = (id: string): RefState => stateOf(states, id);
 
   function notify(ids: readonly string[]): void {
@@ -199,12 +224,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
     const errors = callListeners(ids, listeners);
     const failures = onError ? deliver(errors, onError) : errors;
     if (failures.length === 1) throw failures[0];
-    if (failures.length > 1) {
-      throw new AggregateError(
-        failures,
-        `${String(failures.length)} service onChange listeners failed`,
-      );
-    }
+    if (failures.length > 1) throw new AggregateError(failures, `${String(failures.length)} service onChange listeners failed`);
   }
 
   function register(
@@ -219,6 +239,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
       throw conflictError(ref.id, existing.owner, entry.owner, what);
     }
     list(s).push(entry);
+    index(registered, entry.owner, s);
     rankSort(list(s), rankOf);
     notify([ref.id]);
     return () => {
@@ -233,6 +254,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
       const s = get(ref.id);
       const d: Decorator = { owner, fn: fn as unknown as (prev: object) => object, seq: seq++ };
       s.decorators.push(d);
+      index(registered, owner, s);
       rankSort(s.decorators, rankOf);
       notify([ref.id]);
       return () => {
@@ -240,14 +262,17 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
       };
     },
     use<T extends object>(ref: ServiceRef<T>, consumer: string, allowed: ReadonlySet<string>): T {
+      index(consumed, consumer, ref.id);
       return proxyFor(proxies, get(ref.id), winners, { consumer, allowed, kernelOwner }) as T;
     },
     has: (ref) => resolve(get(ref.id), winners).base !== undefined,
     providerOf: (ref) => resolve(get(ref.id), winners).owner,
     version: (ref) => get(ref.id).version,
     removeOwner(owner) {
-      for (const byConsumer of proxies.values()) byConsumer.delete(owner);
-      const changed = stripOwner(states, owner);
+      for (const refId of consumed.get(owner) ?? []) proxies.get(refId)?.delete(owner);
+      consumed.delete(owner);
+      const changed = stripOwner(registered.get(owner) ?? [], owner);
+      registered.delete(owner);
       if (changed.length > 0) notify(changed);
     },
     reorder() {

@@ -1,6 +1,6 @@
-import { satisfies } from "semver";
 import { LoomError } from "./errors.js";
 import type { PluginDefinition } from "./types.js";
+import { inRange } from "./versions.js";
 
 export interface ResolvedOrder {
   readonly order: readonly PluginDefinition[];
@@ -18,6 +18,12 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 function sortedKeys(record: Record<string, string> | undefined): string[] {
   return record === undefined ? [] : Object.keys(record).sort(byId);
+}
+
+/** Required and optional dependency ids, unsorted (for counting and reverse edges, where order is irrelevant). */
+function depIds(plugin: PluginDefinition): string[] {
+  const required = plugin.dependsOn ? Object.keys(plugin.dependsOn) : [];
+  return plugin.optionalDependsOn ? required.concat(Object.keys(plugin.optionalDependsOn)) : required;
 }
 
 function allDeps(plugin: PluginDefinition): string[] {
@@ -114,7 +120,7 @@ function checkDependencies(
         if (target === undefined) {
           if (!optional) missing.push({ plugin: id, dependency: dep, required: range });
           else push(skippedOptional, id, dep);
-        } else if (!satisfies(target.version, range, { includePrerelease: true })) {
+        } else if (!inRange(target.version, range)) {
           mismatched.push({ plugin: id, dependency: dep, required: range, actual: target.version });
         }
       }
@@ -157,7 +163,7 @@ export function resolveOrder(plugins: readonly PluginDefinition[]): ResolvedOrde
   const pending = new Map<string, number>();
   const dependents = new Map<string, string[]>();
   for (const [id, plugin] of map) {
-    const deps = allDeps(plugin).filter((d) => map.has(d));
+    const deps = depIds(plugin).filter((d) => map.has(d));
     pending.set(id, deps.length);
     for (const dep of deps) push(dependents, dep, id);
   }
@@ -190,7 +196,7 @@ export function resolveOrder(plugins: readonly PluginDefinition[]): ResolvedOrde
 export function dependentsOf(ids: Iterable<string>, plugins: readonly PluginDefinition[]): Set<string> {
   const reverse = new Map<string, string[]>();
   for (const plugin of plugins) {
-    for (const dep of allDeps(plugin)) push(reverse, dep, plugin.id);
+    for (const dep of depIds(plugin)) push(reverse, dep, plugin.id);
   }
   const result = new Set<string>(ids);
   const queue = [...result];
