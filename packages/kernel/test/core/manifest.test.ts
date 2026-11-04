@@ -78,6 +78,13 @@ describe("validatePlugin", () => {
     expect(issuesOf({ id: "a", version: "1.0.0", setup: "x", scope: "weird" }).length).toBe(2);
   });
 
+  it("handles prototype-named keys without false positives", () => {
+    expect(() => validatePlugin({ id: "constructor", version: "1.0.0", dependsOn: { b: "*" } })).not.toThrow();
+    expect(() => validatePlugin({ id: "a", version: "1.0.0", dependsOn: { toString: "*" }, optionalDependsOn: { b: "*" } })).not.toThrow();
+    expect(() => validatePlugin({ id: "a", version: "1.0.0", dependsOn: { b: "*" }, optionalDependsOn: { constructor: "*" } })).not.toThrow();
+    expect(issuesOf({ id: "a", version: "1.0.0", dependsOn: { toString: "*" }, optionalDependsOn: { toString: "*" } }).length).toBe(1);
+  });
+
   it("validates extension structure", () => {
     expect(issuesOf({ id: "a", version: "1.0.0", extensions: [{ id: 1, factory: 2 }] }).length).toBe(2);
     expect(issuesOf({ id: "a", version: "1.0.0", extensions: [{ id: "x", factory: () => 1, attachTo: { id: "p" } }] }).length).toBe(1);
@@ -113,6 +120,42 @@ describe("attach", () => {
     expect(a.id).not.toBe(c.id);
     expect(a.id).toMatch(/^p\/i\/[0-9a-f]{8}$/);
     expect(a.order).toBeUndefined();
+  });
+
+  it("with a cyclic id-less value returns a stable id and does not throw", () => {
+    const make = (): object => {
+      const o: { n: number; self?: unknown } = { n: 1 };
+      o.self = o;
+      return o;
+    };
+    expect(attach("p", "i", make()).id).toBe(attach("p", "i", make()).id);
+  });
+
+  it("distinguishes BigInt, NaN, Infinity, Dates, Maps and Sets", () => {
+    const id = (v: unknown): string => attach("p", "i", v as object).id;
+    expect(id(1n)).not.toBe(id(2n));
+    expect(id(Number.NaN)).not.toBe(id(null));
+    expect(id(Infinity)).not.toBe(id(-Infinity));
+    expect(id(Infinity)).not.toBe(id(null));
+    expect(id(new Date(1000))).toBe(id(new Date(1000)));
+    expect(id(new Date(1000))).not.toBe(id(new Date(2000)));
+    expect(id(new Date(Number.NaN))).toBe(id(new Date(Number.NaN)));
+    expect(id(new Map([["a", 1], ["b", 2]]))).toBe(id(new Map([["b", 2], ["a", 1]])));
+    expect(id(new Map([["a", 1]]))).not.toBe(id(new Map([["a", 2]])));
+    expect(id(new Set([1, 2]))).toBe(id(new Set([2, 1])));
+    expect(id(new Set([1]))).not.toBe(id([1]));
+    expect(id(Symbol("s"))).toBe(id(Symbol("s")));
+  });
+
+  it("gives the same id to shared (non-cyclic) references", () => {
+    const shared = { a: 1 };
+    const id = (v: unknown): string => attach("p", "i", v as object).id;
+    expect(id({ x: shared, y: shared })).toBe(id({ x: { a: 1 }, y: { a: 1 } }));
+  });
+
+  it("values differing only in function body get the same id", () => {
+    const id = (v: unknown): string => attach("p", "i", v as object).id;
+    expect(id({ run: function go() { return 1; } })).toBe(id({ run: function go() { return 2; } }));
   });
 
   it("hashes primitives, null and function-name differences", () => {

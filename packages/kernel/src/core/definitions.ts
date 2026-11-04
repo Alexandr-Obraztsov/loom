@@ -16,16 +16,37 @@ export function createExtension<O>(def: ExtensionDefinition<O>): ExtensionDefini
   return def;
 }
 
-function canonical(value: unknown): string {
-  if (typeof value === "function") return `[fn:${value.name}]`;
-  if (value === undefined) return "undefined";
-  if (value === null || typeof value !== "object") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
-  const entries = Object.entries(value as Record<string, unknown>)
-    .sort(([a], [b]) => (a < b ? -1 : 1))
-    .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`);
-  return `{${entries.join(",")}}`;
+function scalar(value: unknown): string {
+  if (typeof value === "function") return `#fn:${value.name}`;
+  if (typeof value === "bigint") return `#${String(value)}n`;
+  if (typeof value === "number" && !Number.isFinite(value)) return `#${String(value)}`;
+  if (value === undefined || typeof value === "symbol") return `#${String(value)}`;
+  return JSON.stringify(value);
+}
+
+function sortStrings(items: string[]): string[] {
+  return items.sort((a, b) => (a < b ? -1 : 1));
+}
+
+function canonical(value: unknown, path: WeakSet<object> = new WeakSet()): string {
+  if (typeof value !== "object" || value === null) return scalar(value);
+  if (path.has(value)) return "#cycle";
+  if (value instanceof Date) return `#date:${String(value.getTime())}`;
+  path.add(value);
+  const walk = (v: unknown): string => canonical(v, path);
+  let out: string;
+  if (Array.isArray(value)) out = `[${value.map(walk).join(",")}]`;
+  else if (value instanceof Set) out = `#set[${sortStrings([...value].map(walk)).join(",")}]`;
+  else if (value instanceof Map) {
+    out = `#map[${sortStrings([...value].map(([k, v]) => `${walk(k)}=>${walk(v)}`)).join(",")}]`;
+  } else {
+    const entries = Object.entries(value)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${JSON.stringify(k)}:${walk(v)}`);
+    out = `{${sortStrings(entries).join(",")}}`;
+  }
+  path.delete(value);
+  return out;
 }
 
 /** FNV-1a 32-bit over a key-sorted serialization; functions contribute only their names. */
@@ -40,6 +61,13 @@ function stableHash(value: unknown): string {
   return hash.toString(16).padStart(8, "0");
 }
 
+/**
+ * Wraps `value` as an extension attached to `parentId`/`input`.
+ * Without `value.id` the id is a hash of the value's structure; functions contribute
+ * only their names, so values differing only in function bodies get the same id.
+ * Such collisions are rejected by the duplicate-id check; give anything that holds
+ * functions an explicit `id`.
+ */
 export function attach<O>(
   parentId: string,
   input: string,

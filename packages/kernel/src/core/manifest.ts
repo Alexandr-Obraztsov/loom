@@ -48,12 +48,12 @@ const schema = z
   })
   .superRefine((p, ctx) => {
     for (const key of ["dependsOn", "optionalDependsOn"] as const) {
-      if (p[key] && p.id in p[key]) {
+      if (p[key] && Object.hasOwn(p[key], p.id)) {
         ctx.addIssue({ code: "custom", path: [key, p.id], message: "plugin cannot depend on itself" });
       }
     }
     for (const dep of Object.keys(p.dependsOn ?? {})) {
-      if (p.optionalDependsOn && dep in p.optionalDependsOn) {
+      if (p.optionalDependsOn && Object.hasOwn(p.optionalDependsOn, dep)) {
         ctx.addIssue({ code: "custom", path: ["optionalDependsOn", dep], message: `"${dep}" is both required and optional` });
       }
     }
