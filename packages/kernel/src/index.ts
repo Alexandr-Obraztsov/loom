@@ -26,7 +26,8 @@ export type {
   ServiceRef,
   TapOptions,
 } from "./core/types.js";
-
-export function createKernel(): never {
-  throw new Error("not implemented");
-}
+export { createKernel, KERNEL_ID } from "./core/kernel.js";
+export type { Kernel, KernelConfig, KernelOptions, KernelServices } from "./core/kernel.js";
+export { BeforeInstallHook, PluginsRef } from "./core/plugins-service.js";
+export type { PluginsService } from "./core/plugins-service.js";
+export type { ReconcileDiff } from "./core/reconcile.js";
