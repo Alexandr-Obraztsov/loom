@@ -6,6 +6,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
     }
   },
   "files": [
@@ -14,13 +18,14 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
-    "bench": "echo \"no benchmarks yet\""
+    "bench": "vitest bench --run --root ../.. --project kernel"
   },
   "dependencies": {
     "semver": "^7.8.6",
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@types/semver": "^7.8.0"
+    "@types/semver": "^7.8.0",
+    "fast-check": "^4.10.2"
   }
 }

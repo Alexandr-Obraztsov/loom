@@ -50,6 +50,7 @@ export const boundariesConfig = {
       { type: "kernel-other", pattern: "packages/kernel/src/**", partialMatch: false },
       { type: "sdk", pattern: "packages/sdk/src/**", partialMatch: false },
       { type: "kernel-test", pattern: "packages/kernel/test/**", partialMatch: false },
+      { type: "kernel-bench", pattern: "packages/kernel/bench/**", partialMatch: false },
       { type: "sdk-test", pattern: "packages/sdk/test/**", partialMatch: false },
     ],
   },
@@ -72,6 +73,10 @@ export const boundariesConfig = {
           { from: { element: { type: "sdk" } }, allow: [allowTo("sdk"), ENTRY] },
           {
             from: { element: { type: "kernel-test" } },
+            allow: allowTo(...KERNEL_ELEMENTS, "kernel-test"),
+          },
+          {
+            from: { element: { type: "kernel-bench" } },
             allow: allowTo(...KERNEL_ELEMENTS, "kernel-test"),
           },
           {

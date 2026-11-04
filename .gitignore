@@ -4,3 +4,4 @@ coverage/
 .turbo/
 .superpowers/
 .DS_Store
+temp/
