@@ -24,6 +24,14 @@ export default defineConfig({
         },
         test: { name: "sdk", include: ["packages/sdk/test/**/*.test.ts"], benchmark: { include: [] } },
       },
+      {
+        resolve: {
+          alias: {
+            "@loom/kernel": fileURLToPath(new URL("packages/kernel/src/index.ts", import.meta.url)),
+          },
+        },
+        test: { name: "host", include: ["packages/host/test/**/*.test.ts"], benchmark: { include: [] } },
+      },
     ],
     coverage: {
       provider: "v8",
@@ -32,6 +40,7 @@ export default defineConfig({
       thresholds: {
         "packages/kernel/src/**": { statements: 95, branches: 95, functions: 95, lines: 95 },
         "packages/sdk/src/**": { statements: 95, branches: 95, functions: 95, lines: 95 },
+        "packages/host/src/**": { statements: 95, branches: 95, functions: 95, lines: 95 },
       },
     },
   },

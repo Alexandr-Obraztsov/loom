@@ -111,6 +111,7 @@ export function createKernel(options: KernelOptions = {}): Kernel {
   });
   const rt = new KernelRuntime(options, (registry) => {
     registry.provide(PluginsRef, pluginsService, KERNEL_ID);
+    for (const [ref, service] of options.hostServices ?? []) registry.provide(ref, service, KERNEL_ID);
   });
 
   const kernel: Kernel = {

@@ -37,7 +37,13 @@ async function setup(): Promise<{
   await main.reconcile([greeterPlugin("hello", "hello")]);
   const stop = exposeServices(main, createRpcEndpoint(ta), [GreeterRef]);
   const win = createKernel();
-  await win.reconcile([remoteServicesPlugin({ id: "main-services", endpoint: createRpcEndpoint(tb), refs: [GreeterRef] })]);
+  await win.reconcile([
+    remoteServicesPlugin({
+      id: "main-services",
+      endpoint: createRpcEndpoint(tb),
+      refs: [GreeterRef],
+    }),
+  ]);
   return { main, win, stop };
 }
 
@@ -81,6 +87,65 @@ describe("remote services", () => {
 
   it("accepts an explicit plugin version", () => {
     const [t] = createMemoryTransportPair();
-    expect(remoteServicesPlugin({ id: "r", version: "2.0.0", endpoint: createRpcEndpoint(t), refs: [] }).version).toBe("2.0.0");
+    expect(
+      remoteServicesPlugin({ id: "r", version: "2.0.0", endpoint: createRpcEndpoint(t), refs: [] })
+        .version,
+    ).toBe("2.0.0");
+  });
+});
+
+describe("class instances", () => {
+  class Base {
+    base(): string {
+      return "base";
+    }
+  }
+  class Counter extends Base {
+    n = 0;
+    inc(): number {
+      return ++this.n;
+    }
+    get secret(): string {
+      throw new Error("getter invoked");
+    }
+  }
+  const CounterRef = createServiceRef<Counter>("svc.counter");
+
+  async function counterProxy(): Promise<Record<string, () => Promise<unknown>>> {
+    const [ta, tb] = createMemoryTransportPair();
+    const main = createKernel();
+    await main.reconcile([
+      {
+        id: "c",
+        version: "1.0.0",
+        setup: (ctx) => {
+          ctx.provide(CounterRef, new Counter());
+        },
+      },
+    ]);
+    exposeServices(main, createRpcEndpoint(ta), [CounterRef]);
+    const win = createKernel();
+    await win.reconcile([
+      remoteServicesPlugin({ id: "r", endpoint: createRpcEndpoint(tb), refs: [CounterRef] }),
+    ]);
+    return win.services.use(CounterRef) as unknown as Record<string, () => Promise<unknown>>;
+  }
+
+  it("class-instance service method is callable over rpc", async () => {
+    const proxy = await counterProxy();
+    await expect(proxy.inc?.()).resolves.toBe(1);
+  });
+
+  it("inherited method from a base class is callable", async () => {
+    const proxy = await counterProxy();
+    await expect(proxy.base?.()).resolves.toBe("base");
+  });
+
+  it("getter on the prototype is not invoked and is rejected", async () => {
+    const proxy = await counterProxy();
+    expect((await rejection(proxy.secret?.() as Promise<unknown>)).code).toBe("RPC_REMOTE_ERROR");
+    expect((await rejection(proxy.__proto__?.() as Promise<unknown>)).code).toBe(
+      "RPC_REMOTE_ERROR",
+    );
   });
 });

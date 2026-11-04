@@ -9,8 +9,8 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "turbo run typecheck",
-    "test": "vitest run --project kernel --project sdk",
-    "test:coverage": "vitest run --coverage --project kernel --project sdk",
+    "test": "vitest run --project kernel --project sdk --project host",
+    "test:coverage": "vitest run --coverage --project kernel --project sdk --project host",
     "test:perf": "vitest run --project perf",
     "bench": "turbo run bench",
     "depcruise": "depcruise packages/*/src packages/*/test --config .dependency-cruiser.cjs",

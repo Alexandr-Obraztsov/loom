@@ -6,6 +6,22 @@ import type { RpcEndpoint } from "./endpoint.js";
 import { remoteError } from "./protocol.js";
 
 /**
+ * The data member `name` of `service`, found on the instance or up its prototype chain (stopping
+ * before Object.prototype / Function.prototype). Only property descriptors are read, so accessors
+ * are never invoked; `constructor` and `__proto__` are never exposed.
+ */
+function memberOf(service: object, name: string): unknown {
+  if (name === "constructor" || name === "__proto__") return undefined;
+  let object: object | null = service;
+  while (object !== null && object !== Object.prototype && object !== Function.prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, name);
+    if (descriptor) return descriptor.value as unknown;
+    object = Object.getPrototypeOf(object) as object | null;
+  }
+  return undefined;
+}
+
+/**
  * Serves each ref over `endpoint` under its ref id. Every call resolves the kernel's current
  * provider (so provider changes are followed) and awaits the method's result. A missing provider
  * fails with SERVICE_MISSING; a member that is not a function fails with RPC_REMOTE_ERROR.
@@ -18,13 +34,14 @@ export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: read
   });
   const removers = refs.map((ref) =>
     endpoint.handle(ref.id, async (method, args) => {
-      const service = kernel.services.use(ref) as Record<string, unknown>;
-      // only the service's own enumerable members: `constructor` and prototype members are not callable remotely
-      const member = Object.hasOwn(service, method) && Object.prototype.propertyIsEnumerable.call(service, method) ? service[method] : undefined;
+      const service = kernel.services.use(ref);
+      const member = memberOf(service, method);
       if (typeof member !== "function") {
         throw remoteError(`Service "${ref.id}" has no method "${method}"`);
       }
-      return (await Reflect.apply(member, service, args)) as unknown;
+      // called through the service proxy's forwarding wrapper, which binds `this` to the real implementation
+      const call = (service as Record<string, (...a: unknown[]) => unknown>)[method] as (...a: unknown[]) => unknown;
+      return await call(...args);
     }),
   );
   return () => {

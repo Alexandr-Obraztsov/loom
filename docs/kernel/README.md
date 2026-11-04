@@ -214,8 +214,21 @@ const darkFiles = definePlugin({
 - **Приёмник ошибок протокола.** Голому `createRpcEndpoint` нужен `onProtocolError`: без него
   некорректные сообщения и неотправляемые ответы отбрасываются молча. Если ответ нельзя
   отправить (транспорт сломан), ошибка сообщается один раз и endpoint закрывается.
-- **Что можно вызвать.** `exposeServices` вызывает только собственные перечислимые функции
-  сервиса; `constructor` и унаследованные члены дают `RPC_REMOTE_ERROR`.
+- **Что можно вызвать.** `exposeServices` ищет член по цепочке прототипов реализации (экземпляры
+  классов и методы базовых классов работают), не доходя до `Object.prototype` и `Function.prototype`.
+  Читаются только дескрипторы: геттеры не вызываются и дают `RPC_REMOTE_ERROR`, как и
+  `constructor`, `__proto__` и любые не-функции.
+
+## Сервисы хоста (`hostServices`)
+
+```ts
+const kernel = createKernel({ hostServices: [[HostRef, host]] });
+```
+
+Каждая пара `[ref, impl]` предоставляется владельцем ядра до первой сверки, как `PluginsRef`:
+любой плагин делает `ctx.use(ref)` без `dependsOn`. Сервисы переживают `reconcile`, откаты и
+`setConfig`; после `dispose` обращение к ним даёт `DISPOSED`. Пакет `@loom/host` описывает
+`HostRef` (`id: "host"`) и интерфейс `Host` (`process`, `projectDir`, `dataDir`, `endpoint`).
 
 ## Загрузчик (`@loom/kernel/node`)
 

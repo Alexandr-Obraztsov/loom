@@ -49,9 +49,11 @@ export const boundariesConfig = {
       { type: "kernel-node", pattern: "packages/kernel/src/node/**", partialMatch: false },
       { type: "kernel-other", pattern: "packages/kernel/src/**", partialMatch: false },
       { type: "sdk", pattern: "packages/sdk/src/**", partialMatch: false },
+      { type: "host", pattern: "packages/host/src/**", partialMatch: false },
       { type: "kernel-test", pattern: "packages/kernel/test/**", partialMatch: false },
       { type: "kernel-bench", pattern: "packages/kernel/bench/**", partialMatch: false },
       { type: "sdk-test", pattern: "packages/sdk/test/**", partialMatch: false },
+      { type: "host-test", pattern: "packages/host/test/**", partialMatch: false },
     ],
   },
   rules: {
@@ -71,6 +73,7 @@ export const boundariesConfig = {
           },
           { from: { element: { type: "kernel-other" } }, allow: allowTo(...KERNEL_ELEMENTS) },
           { from: { element: { type: "sdk" } }, allow: [allowTo("sdk"), ENTRY] },
+          { from: { element: { type: "host" } }, allow: [allowTo("host"), ENTRY] },
           {
             from: { element: { type: "kernel-test" } },
             allow: allowTo(...KERNEL_ELEMENTS, "kernel-test"),
@@ -82,6 +85,10 @@ export const boundariesConfig = {
           {
             from: { element: { type: "sdk-test" } },
             allow: [allowTo("sdk", "sdk-test"), ENTRY],
+          },
+          {
+            from: { element: { type: "host-test" } },
+            allow: [allowTo("host", "host-test"), ENTRY],
           },
         ],
       },

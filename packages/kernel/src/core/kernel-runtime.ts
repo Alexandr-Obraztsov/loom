@@ -21,6 +21,8 @@ export interface KernelConfig extends TreeConfig {
 }
 
 export interface KernelOptions {
+  /** Services provided by the kernel owner before the first reconcile; any plugin may `use` them without `dependsOn`. */
+  hostServices?: readonly (readonly [ServiceRef<object>, object])[];
   config?: KernelConfig;
   /** Decides whether a `scope: "project"` plugin may load. Without it, project plugins are untrusted. */
   trust?(plugin: PluginDefinition): boolean | Promise<boolean>;
@@ -98,6 +100,8 @@ export class KernelRuntime {
         get: (_t, p): unknown => Reflect.get(inner(), p) as unknown,
         has: (_t, p) => Reflect.has(inner(), p),
         ownKeys: () => Reflect.ownKeys(inner()),
+        // the provider's prototype chain stays visible: class-instance methods and `instanceof` work through the proxy
+        getPrototypeOf: () => Reflect.getPrototypeOf(inner()),
         getOwnPropertyDescriptor: (_t, p) => Reflect.getOwnPropertyDescriptor(inner(), p),
         set: (_t, p, v) => Reflect.set(inner(), p, v),
         defineProperty: (_t, p, d) => Reflect.defineProperty(inner(), p, d),
