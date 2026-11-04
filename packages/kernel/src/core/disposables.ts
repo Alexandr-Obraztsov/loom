@@ -1,9 +1,26 @@
 type Disposer = () => void | Promise<void>;
 
+export interface DisposableStoreOptions {
+  readonly onError?: (error: unknown) => void;
+}
+
+/**
+ * Collects disposers and runs them in reverse order of add.
+ *
+ * Error policy for disposers added after dispose (they run immediately):
+ * with `onError`, both a sync throw and an async rejection go to `onError`
+ * and `add()` never throws; without it, a sync throw propagates from `add()`
+ * and a rejection is left unhandled (loud, never swallowed).
+ */
 export class DisposableStore {
   private readonly disposers = new Set<Disposer>();
+  private readonly onError: ((error: unknown) => void) | undefined;
   private isDisposed = false;
   private pending: Promise<void> | undefined;
+
+  constructor(options: DisposableStoreOptions = {}) {
+    this.onError = options.onError;
+  }
 
   get disposed(): boolean {
     return this.isDisposed;
@@ -12,7 +29,7 @@ export class DisposableStore {
   /** Registers a disposer; returns a remover. After dispose, runs it immediately. */
   add(fn: Disposer): () => void {
     if (this.isDisposed) {
-      void fn();
+      this.runLate(fn);
       return () => undefined;
     }
     // Wrap so the same function added twice gets independent entries.
@@ -23,11 +40,27 @@ export class DisposableStore {
     };
   }
 
-  /** Runs disposers in reverse order of add; rethrows failures as one AggregateError. */
+  /**
+   * Runs disposers in reverse order of add; rethrows failures as one AggregateError.
+   * A disposer that awaits this same store's dispose() would deadlock.
+   */
   dispose(): Promise<void> {
     this.isDisposed = true;
     this.pending ??= this.run();
     return this.pending;
+  }
+
+  private runLate(fn: Disposer): void {
+    const onError = this.onError;
+    if (!onError) {
+      void fn();
+      return;
+    }
+    try {
+      Promise.resolve(fn()).catch(onError);
+    } catch (error) {
+      onError(error);
+    }
   }
 
   private async run(): Promise<void> {

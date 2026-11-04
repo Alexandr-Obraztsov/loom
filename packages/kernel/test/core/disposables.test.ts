@@ -70,3 +70,40 @@ describe("DisposableStore", () => {
     expect(count).toBe(1);
   });
 });
+
+describe("DisposableStore late disposers", () => {
+  it("late add with onError routes sync throw to onError", async () => {
+    const errors: unknown[] = [];
+    const store = new DisposableStore({ onError: (e) => errors.push(e) });
+    await store.dispose();
+    const boom = new Error("sync");
+    expect(() =>
+      store.add(() => {
+        throw boom;
+      }),
+    ).not.toThrow();
+    expect(errors).toEqual([boom]);
+  });
+
+  it("late add with onError routes async rejection to onError", async () => {
+    const errors: unknown[] = [];
+    const store = new DisposableStore({ onError: (e) => errors.push(e) });
+    await store.dispose();
+    const boom = new Error("async");
+    store.add(() => Promise.reject(boom));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toEqual([boom]);
+  });
+
+  it("late add without onError rethrows sync error", async () => {
+    const store = new DisposableStore();
+    await store.dispose();
+    const boom = new Error("sync");
+    expect(() =>
+      store.add(() => {
+        throw boom;
+      }),
+    ).toThrow(boom);
+  });
+});

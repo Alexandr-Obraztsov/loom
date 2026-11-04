@@ -35,6 +35,6 @@ export class LoomError extends Error {
     this.name = "LoomError";
     this.code = code;
     this.pluginIds = options.pluginIds ?? [];
-    if ("details" in options) this.details = options.details;
+    this.details = options.details;
   }
 }
