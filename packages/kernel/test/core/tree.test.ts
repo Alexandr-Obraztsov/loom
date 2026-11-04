@@ -34,8 +34,7 @@ describe("buildTree basics", () => {
     expect((seen?.inputs["one"] as ResolvedNode).value).toBe("c");
     expect(seen?.inputs["nothing"]).toBeUndefined();
     expect(seen?.config).toBeUndefined();
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- identity check of the passthrough
-    expect(seen?.use).toBe(use);
+    expect(() => seen?.use({ id: "x", kind: "service" })).toThrow("unused");
   });
 
   it("orders children by order asc then id", () => {

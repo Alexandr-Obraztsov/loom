@@ -112,3 +112,71 @@ describe("buildTree sharing edge cases", () => {
     expect((second.root?.inputs["s"] as ResolvedNode).error?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
 });
+
+describe("buildTree service-aware reuse", () => {
+  const ref = { id: "svc", kind: "service" } as const;
+  const other = { id: "other", kind: "service" } as const;
+  const versions: Record<string, number> = {};
+  const sv = (id: string): number => versions[id] ?? 0;
+  const svcUse = ((r: { id: string }) => ({ id: r.id })) as unknown as typeof use;
+
+  function mk(leaf: () => unknown): { entries: () => Entry[]; spies: Record<string, ReturnType<typeof vi.fn>> } {
+    const spies: Record<string, ReturnType<typeof vi.fn>> = { app: vi.fn(() => "app"), sib: vi.fn(() => "sib") };
+    const defs = [
+      ext("app", { inputs: slot, factory: spies["app"] as () => string }),
+      ext("leaf", { attachTo: at("app", "slot"), factory: (c) => { c.use(ref); return leaf(); } }),
+      ext("sib", { attachTo: at("app", "slot"), order: 1, factory: spies["sib"] as () => string }),
+    ];
+    return { entries: () => defs.map((d) => e("p", d)), spies };
+  }
+
+  it("node is rebuilt when a service its factory used changes version", () => {
+    const factory = vi.fn(() => 1);
+    const { entries } = mk(factory);
+    versions["svc"] = 0;
+    const first = buildTree(entries(), {}, svcUse, undefined, sv);
+    expect(buildTree(entries(), {}, svcUse, first, sv)).toBe(first);
+    versions["svc"] = 1;
+    const second = buildTree(entries(), {}, svcUse, first, sv);
+    expect(second).not.toBe(first);
+    expect(factory).toHaveBeenCalledTimes(2);
+  });
+
+  it("node is reused when an unrelated service changes version", () => {
+    const { entries } = mk(() => 1);
+    versions["svc"] = 0;
+    const first = buildTree(entries(), {}, svcUse, undefined, sv);
+    versions[other.id] = 5;
+    expect(buildTree(entries(), {}, svcUse, first, sv)).toBe(first);
+  });
+
+  it("failed factory is retried on the next build and succeeds", () => {
+    let ok = false;
+    const { entries } = mk(() => {
+      if (!ok) throw new Error("svc missing");
+      return "fine";
+    });
+    const first = buildTree(entries(), {}, svcUse, undefined, sv);
+    expect(first.errors[0]?.code).toBe("EXTENSION_FACTORY_FAILED");
+    ok = true;
+    const second = buildTree(entries(), {}, svcUse, first, sv);
+    expect(second).not.toBe(first);
+    expect(second.errors).toEqual([]);
+    expect(childIds(second.root, "slot")).toEqual(["leaf", "sib"]);
+  });
+
+  it("ancestors of a rebuilt node are rebuilt, siblings reused", () => {
+    const { entries, spies } = mk(() => 1);
+    versions["svc"] = 0;
+    const first = buildTree(entries(), {}, svcUse, undefined, sv);
+    const [, sib1] = first.root?.inputs["slot"] as ResolvedNode[] as [ResolvedNode, ResolvedNode];
+    versions["svc"] = 7;
+    const second = buildTree(entries(), {}, svcUse, first, sv);
+    const [leaf2, sib2] = second.root?.inputs["slot"] as ResolvedNode[] as [ResolvedNode, ResolvedNode];
+    expect(sib2).toBe(sib1);
+    expect(leaf2).not.toBe((first.root?.inputs["slot"] as ResolvedNode[])[0]);
+    expect(second.root).not.toBe(first.root);
+    expect(spies["app"]).toHaveBeenCalledTimes(2);
+    expect(spies["sib"]).toHaveBeenCalledTimes(1);
+  });
+});

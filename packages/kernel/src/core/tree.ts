@@ -32,12 +32,15 @@ interface Fingerprint {
 }
 
 const fingerprints = new WeakMap<ResolvedNode, Fingerprint>();
+/** Service ref id -> service version seen by the factory when the node was created. */
+const usedServices = new WeakMap<ResolvedNode, ReadonlyMap<string, number>>();
 
 interface Pass {
   readonly index: TreeIndex;
   readonly use: ExtensionContext<never>["use"];
   readonly previous: ReadonlyMap<string, ResolvedNode>;
   readonly reached: Set<string>;
+  readonly serviceVersion: ((refId: string) => number) | undefined;
 }
 
 function childrenOf(node: ResolvedNode): ResolvedNode[] {
@@ -93,9 +96,14 @@ function build(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>, schema: 
     given[name] = spec.multiple ? healthy : healthy[0];
   }
   let value: unknown;
+  const used = new Map<string, number>();
+  const trackedUse: Pass["use"] = (ref) => {
+    used.set(ref.id, pass.serviceVersion?.(ref.id) ?? 0);
+    return pass.use(ref);
+  };
   if (!error) {
     try {
-      value = p.ext.factory({ inputs: given, use: pass.use, config: undefined });
+      value = p.ext.factory({ inputs: given, use: trackedUse, config: undefined });
     } catch (cause) {
       error = new LoomError("EXTENSION_FACTORY_FAILED", `Factory of extension "${p.id}" threw`, { pluginIds: [p.pluginId], cause });
     }
@@ -107,7 +115,18 @@ function build(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>, schema: 
       details: parsed.error.issues,
     });
   }
-  return mkNode(p, shown, value, error);
+  const node = mkNode(p, shown, value, error);
+  usedServices.set(node, used);
+  return node;
+}
+
+/** A previous node is stale if its factory failed or a service it used has changed since. */
+function isStale(prev: ResolvedNode, pass: Pass): boolean {
+  if (prev.error?.code === "EXTENSION_FACTORY_FAILED") return true;
+  for (const [refId, version] of usedServices.get(prev) ?? []) {
+    if ((pass.serviceVersion?.(refId) ?? 0) !== version) return true;
+  }
+  return false;
 }
 
 function resolveNode(p: Placed, schema: ZodType | undefined, pass: Pass): ResolvedNode {
@@ -126,7 +145,7 @@ function resolveNode(p: Placed, schema: ZodType | undefined, pass: Pass): Resolv
   };
   const prev = pass.previous.get(p.id);
   const prevPrint = prev && fingerprints.get(prev);
-  if (prev && prevPrint && sameFingerprint(prevPrint, print)) return prev;
+  if (prev && prevPrint && sameFingerprint(prevPrint, print) && !isStale(prev, pass)) return prev;
   const node = build(p, byInput, schema, pass);
   fingerprints.set(node, print);
   return node;
@@ -157,11 +176,12 @@ export function buildTree(
   config: TreeConfig,
   use: ExtensionContext<never>["use"],
   previous?: TreeResult,
+  serviceVersion?: (refId: string) => number,
 ): TreeResult {
   const index = indexEntries(entries, config);
   const prevNodes = new Map<string, ResolvedNode>();
   collectNodes(previous?.root, prevNodes);
-  const pass: Pass = { index, use, previous: prevNodes, reached: new Set() };
+  const pass: Pass = { index, use, previous: prevNodes, reached: new Set(), serviceVersion };
   const rootPlaced = index.placed.get(index.rootId);
   const root = rootPlaced ? resolveNode(rootPlaced, undefined, pass) : undefined;
   const orphans = findOrphans(index, pass.reached);

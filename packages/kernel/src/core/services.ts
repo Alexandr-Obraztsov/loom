@@ -9,6 +9,8 @@ export interface ServiceRegistry {
   use<T extends object>(ref: ServiceRef<T>, consumer: string, allowed: ReadonlySet<string>): T;
   has(ref: ServiceRef<unknown>): boolean;
   providerOf(ref: ServiceRef<unknown>): string | undefined;
+  /** Per-ref counter that increases whenever the active implementation of the ref changes. */
+  version(ref: ServiceRef<unknown>): number;
   removeOwner(owner: string): void;
   onChange(listener: (refId: string) => void): () => void;
 }
@@ -309,6 +311,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
     },
     has: (ref) => resolve(get(ref.id), winners).base !== undefined,
     providerOf: (ref) => resolve(get(ref.id), winners).owner,
+    version: (ref) => get(ref.id).version,
     removeOwner(owner) {
       for (const byConsumer of proxies.values()) byConsumer.delete(owner);
       const changed = stripOwner(states, owner);
