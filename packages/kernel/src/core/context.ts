@@ -14,8 +14,6 @@ export interface PluginContextArgs {
   readonly services: ServiceRegistry;
   readonly hooks: HookRegistry;
   readonly events: EventBus;
-  /** Receives failures of onDispose callbacks registered after dispose. */
-  readonly onError?: (err: LoomError) => void;
 }
 
 export interface ScopedPluginContext {
@@ -31,11 +29,7 @@ export interface ScopedPluginContext {
 export function createPluginContext(args: PluginContextArgs): ScopedPluginContext {
   const { plugin, allowed, services, hooks, events } = args;
   const id = plugin.id;
-  const store = new DisposableStore({
-    onError: (cause) => {
-      args.onError?.(new LoomError("SETUP_FAILED", `onDispose of "${id}" failed after dispose`, { pluginIds: [id], cause }));
-    },
-  });
+  const store = new DisposableStore();
   let pending: Promise<void> | undefined;
 
   const live = (): void => {

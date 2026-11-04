@@ -13,7 +13,7 @@ const ref = createServiceRef<Greeter>("greeter");
 const hook = createHook<number, number>("h", { mode: "sync" });
 const greeter = (tag: string): Greeter => ({ greet: (n) => `${tag}:${n}` });
 
-function make(id = "P", allowed: string[] = [], state: Record<string, unknown> = {}, onError?: (e: LoomError) => void) {
+function make(id = "P", allowed: string[] = [], state: Record<string, unknown> = {}) {
   const services = createServiceRegistry({ kernelOwner: "kernel" });
   const hooks = createHookRegistry({ onError: () => undefined });
   const events = createEventBus({ onError: () => undefined });
@@ -26,7 +26,6 @@ function make(id = "P", allowed: string[] = [], state: Record<string, unknown> =
     services,
     hooks,
     events,
-    ...(onError ? { onError } : {}),
   });
   return { ...made, services, hooks, events };
 }
@@ -122,6 +121,44 @@ describe("plugin context (use, state, dispose guard)", () => {
   it("state object is the same instance passed in", () => {
     const state = { k: 1 };
     expect(make("P", [], state).ctx.state).toBe(state);
+  });
+
+});
+
+describe("plugin context (dispose race)", () => {
+  it("registrations are rejected while dispose is in progress", async () => {
+    const { ctx, dispose, services, hooks, events } = make("P");
+    ctx.provide(ref, greeter("a"));
+    ctx.tap(hook, {}, (c, next) => next(c + 1));
+    const listener = vi.fn();
+    ctx.on("e", listener);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    ctx.onDispose(() => gate);
+    const done = dispose();
+    const calls: (() => unknown)[] = [
+      () => {
+        ctx.provide(ref, greeter("b"));
+      },
+      () => {
+        ctx.tap(hook, {}, (c, next) => next(c));
+      },
+      () => {
+        ctx.on("e", () => undefined);
+      },
+      () => {
+        ctx.onDispose(() => undefined);
+      },
+    ];
+    for (const call of calls) expect(codeOf(call).code).toBe("DISPOSED");
+    release();
+    await done;
+    expect(services.has(ref)).toBe(false);
+    expect(hooks.taps(hook)).toEqual([]);
+    events.emit("e", 1);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("methods after dispose throw DISPOSED", async () => {
