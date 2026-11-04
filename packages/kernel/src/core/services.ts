@@ -31,8 +31,17 @@ interface Decorator {
 interface Resolved {
   readonly version: number;
   readonly owner: string | undefined;
-  readonly impl: object | undefined;
-  readonly bound: Map<PropertyKey, { raw: unknown; bound: unknown }>;
+  /** Active registration's impl before decorators; undefined when there is no provider. */
+  readonly base: object | undefined;
+  decorated?: object;
+  failure?: LoomError;
+  readonly wrappers: Map<PropertyKey, unknown>;
+}
+interface ProxyAccess {
+  readonly consumer: string;
+  readonly kernelOwner: string;
+  allowed: ReadonlySet<string>;
+  checkedVersion: number;
 }
 interface RefState {
   readonly id: string;
@@ -61,18 +70,42 @@ function resolve(s: RefState, winners: Winners): Resolved {
   const entry =
     (winner === undefined ? undefined : candidates.find((c) => c.owner === winner)) ??
     candidates[0];
-  let impl: object | undefined = entry?.impl;
-  if (impl !== undefined) for (const d of s.decorators) impl = d.fn(impl);
-  const resolved: Resolved = { version: s.version, owner: entry?.owner, impl, bound: new Map() };
+  const resolved: Resolved = {
+    version: s.version,
+    owner: entry?.owner,
+    base: entry?.impl,
+    wrappers: new Map(),
+  };
   s.resolved = resolved;
   return resolved;
 }
 
-function checkAccess(
-  s: RefState,
-  owner: string,
-  access: { consumer: string; allowed: ReadonlySet<string>; kernelOwner: string },
-): void {
+/** Runs decorators once per version; a failure is cached for that version. */
+function materialize(s: RefState, r: Resolved & { base: object }): object {
+  if (r.failure) throw r.failure;
+  if (r.decorated) return r.decorated;
+  let impl = r.base;
+  for (const d of s.decorators) {
+    try {
+      impl = d.fn(impl);
+    } catch (cause) {
+      r.failure = new LoomError(
+        "TAP_FAILED",
+        `decorator of "${d.owner}" for service "${s.id}" failed`,
+        {
+          pluginIds: [d.owner],
+          details: { ref: s.id },
+          cause,
+        },
+      );
+      throw r.failure;
+    }
+  }
+  r.decorated = impl;
+  return impl;
+}
+
+function checkAccess(s: RefState, owner: string, access: ProxyAccess): void {
   const { consumer, allowed, kernelOwner } = access;
   if (owner === consumer || owner === kernelOwner || allowed.has(owner)) return;
   throw new LoomError(
@@ -82,51 +115,54 @@ function checkAccess(
   );
 }
 
-function buildProxy(
-  s: RefState,
-  consumer: string,
-  resolveNow: () => Resolved,
-  check: (owner: string) => void,
-): object {
-  let checkedVersion = -1;
-  const target = (): Resolved & { impl: object } => {
-    const r = resolveNow();
-    if (r.impl === undefined || r.owner === undefined) {
+function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object {
+  const { consumer } = access;
+  const current = (): { r: Resolved; impl: object } => {
+    const r = resolve(s, winners);
+    if (r.base === undefined || r.owner === undefined) {
       throw new LoomError(
         "SERVICE_MISSING",
         `service "${s.id}" has no active provider (used by "${consumer}")`,
-        {
-          pluginIds: [consumer],
-          details: { ref: s.id },
-        },
+        { pluginIds: [consumer], details: { ref: s.id } },
       );
     }
-    if (checkedVersion !== r.version) {
-      check(r.owner);
-      checkedVersion = r.version;
+    if (access.checkedVersion !== r.version) {
+      checkAccess(s, r.owner, access);
+      access.checkedVersion = r.version;
     }
-    return r as Resolved & { impl: object };
+    return { r, impl: materialize(s, r as Resolved & { base: object }) };
   };
   const readOnly = (what: string) => (): never => {
     throw new TypeError(`cannot ${what} on service "${s.id}" through its proxy`);
+  };
+  const wrapper = (r: Resolved, prop: PropertyKey): unknown => {
+    let w = r.wrappers.get(prop);
+    if (!w) {
+      w = (...args: unknown[]): unknown => {
+        const cur = current().impl;
+        const fn: unknown = Reflect.get(cur, prop, cur);
+        if (typeof fn !== "function") {
+          throw new TypeError(`"${String(prop)}" of service "${s.id}" is no longer a function`);
+        }
+        const result: unknown = Reflect.apply(fn, cur, args);
+        return result;
+      };
+      r.wrappers.set(prop, w);
+    }
+    return w;
   };
   return new Proxy<object>(
     {},
     {
       get(_t, prop) {
-        const r = target();
-        const raw: unknown = Reflect.get(r.impl, prop, r.impl);
-        if (typeof raw !== "function") return raw;
-        const hit = r.bound.get(prop);
-        if (hit?.raw === raw) return hit.bound;
-        const bound: unknown = (raw as (...a: unknown[]) => unknown).bind(r.impl);
-        r.bound.set(prop, { raw, bound });
-        return bound;
+        const { r, impl } = current();
+        const raw: unknown = Reflect.get(impl, prop, impl);
+        return typeof raw === "function" ? wrapper(r, prop) : raw;
       },
-      has: (_t, prop) => Reflect.has(target().impl, prop),
-      ownKeys: () => Reflect.ownKeys(target().impl),
+      has: (_t, prop) => Reflect.has(current().impl, prop),
+      ownKeys: () => Reflect.ownKeys(current().impl),
       getOwnPropertyDescriptor(_t, prop) {
-        const d = Reflect.getOwnPropertyDescriptor(target().impl, prop);
+        const d = Reflect.getOwnPropertyDescriptor(current().impl, prop);
         return d && { ...d, configurable: true };
       },
       set: readOnly("set a property"),
@@ -157,6 +193,19 @@ function stripOwner(states: Map<string, RefState>, owner: string): string[] {
   return changed;
 }
 
+/** Hands each error to `sink`; returns the errors the sink itself threw. */
+function deliver(errors: readonly unknown[], sink: (e: unknown) => void): unknown[] {
+  const failed: unknown[] = [];
+  for (const e of errors) {
+    try {
+      sink(e);
+    } catch (sinkError) {
+      failed.push(sinkError);
+    }
+  }
+  return failed;
+}
+
 function conflictError(refId: string, existing: string, incoming: string, what: string): LoomError {
   return new LoomError(
     "SERVICE_CONFLICT",
@@ -165,46 +214,46 @@ function conflictError(refId: string, existing: string, incoming: string, what: 
   );
 }
 
-type Access = Parameters<typeof checkAccess>[2];
+type CachedProxy = { proxy: object; access: ProxyAccess };
+type ProxyCache = Map<string, Map<string, CachedProxy>>;
 
 function proxyFor(
-  proxies: Map<string, Map<string, object>>,
+  proxies: ProxyCache,
   s: RefState,
   winners: Winners,
-  access: Access,
+  request: { consumer: string; allowed: ReadonlySet<string>; kernelOwner: string },
 ): object {
-  const active = resolve(s, winners).owner;
-  if (active !== undefined) checkAccess(s, active, access);
   let byConsumer = proxies.get(s.id);
-  if (!byConsumer) proxies.set(s.id, (byConsumer = new Map<string, object>()));
-  let proxy = byConsumer.get(access.consumer);
-  if (!proxy) {
-    proxy = buildProxy(
-      s,
-      access.consumer,
-      () => resolve(s, winners),
-      (owner) => {
-        checkAccess(s, owner, access);
-      },
-    );
-    byConsumer.set(access.consumer, proxy);
+  if (!byConsumer) proxies.set(s.id, (byConsumer = new Map<string, CachedProxy>()));
+  let cached = byConsumer.get(request.consumer);
+  if (!cached) {
+    const access: ProxyAccess = { ...request, checkedVersion: -1 };
+    cached = { proxy: buildProxy(s, winners, access), access };
+    byConsumer.set(request.consumer, cached);
+  } else if (cached.access.allowed !== request.allowed) {
+    cached.access.allowed = request.allowed;
+    cached.access.checkedVersion = -1;
   }
-  return proxy;
+  const active = resolve(s, winners).owner;
+  if (active !== undefined) checkAccess(s, active, cached.access);
+  return cached.proxy;
 }
 
 export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegistry {
   const { winners = {}, kernelOwner, onError } = opts;
   const states = new Map<string, RefState>();
-  const proxies = new Map<string, Map<string, object>>();
+  const proxies: ProxyCache = new Map();
   const listeners = new Set<(refId: string) => void>();
   const get = (id: string): RefState => stateOf(states, id);
 
   function notify(ids: readonly string[]): void {
-    const errors: LoomError[] = [];
     for (const id of ids) {
       const s = get(id);
       s.version += 1;
       s.resolved = undefined;
+    }
+    const errors: unknown[] = [];
+    for (const id of ids) {
       for (const l of [...listeners]) {
         try {
           l(id);
@@ -215,10 +264,14 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
         }
       }
     }
-    const [first] = errors;
-    if (!first) return;
-    if (!onError) throw first;
-    for (const e of errors) onError(e);
+    const failures = onError ? deliver(errors, onError) : errors;
+    if (failures.length === 1) throw failures[0];
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        `${String(failures.length)} service onChange listeners failed`,
+      );
+    }
   }
 
   function register(
@@ -254,9 +307,10 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
     use<T extends object>(ref: ServiceRef<T>, consumer: string, allowed: ReadonlySet<string>): T {
       return proxyFor(proxies, get(ref.id), winners, { consumer, allowed, kernelOwner }) as T;
     },
-    has: (ref) => resolve(get(ref.id), winners).impl !== undefined,
+    has: (ref) => resolve(get(ref.id), winners).base !== undefined,
     providerOf: (ref) => resolve(get(ref.id), winners).owner,
     removeOwner(owner) {
+      for (const byConsumer of proxies.values()) byConsumer.delete(owner);
       const changed = stripOwner(states, owner);
       if (changed.length > 0) notify(changed);
     },
