@@ -24,6 +24,12 @@ function allDeps(plugin: PluginDefinition): string[] {
   return [...new Set([...sortedKeys(plugin.dependsOn), ...sortedKeys(plugin.optionalDependsOn)])].sort(byId);
 }
 
+function push(map: Map<string, string[]>, key: string, value: string): void {
+  const list = map.get(key);
+  if (list === undefined) map.set(key, [value]);
+  else list.push(value);
+}
+
 /** Binary min-heap of strings (ids). */
 class MinHeap {
   private readonly items: string[] = [];
@@ -107,7 +113,7 @@ function checkDependencies(
         const target = map.get(dep);
         if (target === undefined) {
           if (!optional) missing.push({ plugin: id, dependency: dep, required: range });
-          else skippedOptional.set(id, [...(skippedOptional.get(id) ?? []), dep]);
+          else push(skippedOptional, id, dep);
         } else if (!satisfies(target.version, range, { includePrerelease: true })) {
           mismatched.push({ plugin: id, dependency: dep, required: range, actual: target.version });
         }
@@ -153,7 +159,7 @@ export function resolveOrder(plugins: readonly PluginDefinition[]): ResolvedOrde
   for (const [id, plugin] of map) {
     const deps = allDeps(plugin).filter((d) => map.has(d));
     pending.set(id, deps.length);
-    for (const dep of deps) dependents.set(dep, [...(dependents.get(dep) ?? []), id]);
+    for (const dep of deps) push(dependents, dep, id);
   }
 
   const ready = new MinHeap();
@@ -184,7 +190,7 @@ export function resolveOrder(plugins: readonly PluginDefinition[]): ResolvedOrde
 export function dependentsOf(ids: Iterable<string>, plugins: readonly PluginDefinition[]): Set<string> {
   const reverse = new Map<string, string[]>();
   for (const plugin of plugins) {
-    for (const dep of allDeps(plugin)) reverse.set(dep, [...(reverse.get(dep) ?? []), plugin.id]);
+    for (const dep of allDeps(plugin)) push(reverse, dep, plugin.id);
   }
   const result = new Set<string>(ids);
   const queue = [...result];

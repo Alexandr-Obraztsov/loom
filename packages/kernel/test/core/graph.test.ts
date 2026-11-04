@@ -124,3 +124,15 @@ describe("dependentsOf", () => {
     expect([...dependentsOf(["a", "nope"], plugins)].sort()).toEqual(["a", "b", "nope"]);
   });
 });
+
+describe("scale", () => {
+  it("hub with 20000 dependents resolves in linear-ish time", () => {
+    const n = 20000;
+    const plugins = [p("hub")];
+    for (let i = 0; i < n; i++) plugins.push(p(`d${String(i).padStart(5, "0")}`, { hub: "*" }));
+    const { order } = resolveOrder(plugins);
+    expect(order).toHaveLength(n + 1);
+    expect(order[0]?.id).toBe("hub");
+    expect(dependentsOf(["hub"], plugins).size).toBe(n + 1);
+  });
+});
