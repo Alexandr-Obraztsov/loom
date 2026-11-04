@@ -177,6 +177,7 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
       set: readOnly("set a property"),
       defineProperty: readOnly("define a property"),
       deleteProperty: readOnly("delete a property"),
+      preventExtensions: readOnly("prevent extensions"),
     },
   );
 }

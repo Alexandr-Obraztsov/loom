@@ -21,7 +21,7 @@ describe("host services", () => {
     expect(k.services.providerOf(InfoRef)).toBe("kernel");
   });
 
-  it("host services survive reconcile and are removed on dispose", async () => {
+  it("host services survive reconcile and setConfig; the kernel rejects use after dispose", async () => {
     const log: string[] = [];
     const k = createKernel({ hostServices: [[InfoRef, info]] });
     expect(k.services.use(InfoRef).name()).toBe("host-info");
@@ -34,5 +34,16 @@ describe("host services", () => {
     await k.dispose();
     expect(() => k.services.has(InfoRef)).toThrow(/disposed/i);
     expect((await rejection(k.reconcile([]))).code).toBe("DISPOSED");
+  });
+
+  it("service proxies refuse preventExtensions and keep working", async () => {
+    const log: string[] = [];
+    let viaPlugin: Info | undefined;
+    const k = createKernel({ hostServices: [[InfoRef, info]] });
+    await k.reconcile([plugin(log, "p", { provides: false, setup: (ctx) => void (viaPlugin = ctx.use(InfoRef)) })]);
+    for (const proxy of [k.services.use(InfoRef), viaPlugin as Info]) {
+      expect(() => Object.preventExtensions(proxy)).toThrow(TypeError);
+      expect(proxy.name()).toBe("host-info");
+    }
   });
 });

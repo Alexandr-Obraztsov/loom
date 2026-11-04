@@ -100,13 +100,15 @@ describe("class instances", () => {
       return "base";
     }
   }
+  let getterInvoked = false;
   class Counter extends Base {
     n = 0;
     inc(): number {
       return ++this.n;
     }
     get secret(): string {
-      throw new Error("getter invoked");
+      getterInvoked = true;
+      return "secret";
     }
   }
   const CounterRef = createServiceRef<Counter>("svc.counter");
@@ -143,7 +145,11 @@ describe("class instances", () => {
 
   it("getter on the prototype is not invoked and is rejected", async () => {
     const proxy = await counterProxy();
-    expect((await rejection(proxy.secret?.() as Promise<unknown>)).code).toBe("RPC_REMOTE_ERROR");
+    getterInvoked = false;
+    const error = await rejection(proxy.secret?.() as Promise<unknown>);
+    expect(error.code).toBe("RPC_REMOTE_ERROR");
+    expect(error.message).toMatch(/has no method "secret"/);
+    expect(getterInvoked).toBe(false);
     expect((await rejection(proxy.__proto__?.() as Promise<unknown>)).code).toBe(
       "RPC_REMOTE_ERROR",
     );

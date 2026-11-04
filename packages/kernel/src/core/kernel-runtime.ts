@@ -106,6 +106,9 @@ export class KernelRuntime {
         set: (_t, p, v) => Reflect.set(inner(), p, v),
         defineProperty: (_t, p, d) => Reflect.defineProperty(inner(), p, d),
         deleteProperty: (_t, p) => Reflect.deleteProperty(inner(), p),
+        preventExtensions: () => {
+          throw new TypeError(`cannot prevent extensions on service "${ref.id}" through its proxy`);
+        },
       },
     ) as T;
   }
