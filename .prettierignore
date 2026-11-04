@@ -1,0 +1,6 @@
+docs
+.superpowers
+pnpm-lock.yaml
+coverage
+dist
+.changeset

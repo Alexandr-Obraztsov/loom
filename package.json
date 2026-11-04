@@ -1,0 +1,37 @@
+{
+  "name": "loom",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "turbo run typecheck",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "bench": "turbo run bench",
+    "depcruise": "depcruise packages/*/src packages/*/test --config .dependency-cruiser.cjs",
+    "knip": "knip",
+    "check": "pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip",
+    "changeset": "changeset",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.3",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.6",
+    "@vitest/coverage-v8": "^4.1.12",
+    "dependency-cruiser": "^18.7.2",
+    "eslint": "^10.14.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-boundaries": "^7.4.1",
+    "knip": "^6.44.1",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^4.1.12"
+  }
+}
