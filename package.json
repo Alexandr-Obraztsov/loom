@@ -14,9 +14,10 @@
     "bench": "turbo run bench",
     "depcruise": "depcruise packages/*/src packages/*/test --config .dependency-cruiser.cjs",
     "knip": "knip",
-    "check": "pnpm lint && pnpm typecheck && pnpm depcruise && pnpm knip",
+    "check": "pnpm lint && pnpm lint:fixtures && pnpm typecheck && pnpm depcruise && pnpm knip",
     "changeset": "changeset",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "lint:fixtures": "node tools/check-lint-fixtures.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.3",

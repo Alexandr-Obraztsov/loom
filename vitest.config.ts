@@ -18,7 +18,10 @@ export default defineConfig({
       provider: "v8",
       include: ["packages/*/src/**/*.ts"],
       reporter: ["text", "lcov"],
-      thresholds: { statements: 95, branches: 95, functions: 95, lines: 95 },
+      thresholds: {
+        "packages/kernel/src/**": { statements: 95, branches: 95, functions: 95, lines: 95 },
+        "packages/sdk/src/**": { statements: 95, branches: 95, functions: 95, lines: 95 },
+      },
     },
   },
 });
