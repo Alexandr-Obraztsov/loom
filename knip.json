@@ -43,6 +43,10 @@
     "plugins/chat": {
       "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/composer": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
     }
   },
   "ignore": ["tools/lint-fixtures/**"]

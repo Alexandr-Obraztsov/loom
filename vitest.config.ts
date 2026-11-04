@@ -87,6 +87,7 @@ export default defineConfig({
         "plugins/app/src/**": threshold,
         "plugins/layout-bare/src/**": threshold,
         "plugins/chat/src/**": threshold,
+        "plugins/composer/src/**": threshold,
       },
     },
   },
