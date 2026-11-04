@@ -6,8 +6,7 @@
     },
     "packages/kernel": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
-      "project": ["src/**/*.ts", "test/**/*.ts"],
-      "ignoreDependencies": ["semver", "zod", "@types/semver"]
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "packages/sdk": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
