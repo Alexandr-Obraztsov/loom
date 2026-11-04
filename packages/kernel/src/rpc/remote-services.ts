@@ -1,6 +1,6 @@
 import { kernelInternals } from "../core/kernel.js";
 import type { Kernel } from "../core/kernel.js";
-import type { PluginDefinition, ServiceRef } from "../core/types.js";
+import type { PluginContext, PluginDefinition, ServiceRef } from "../core/types.js";
 import { channelOf } from "./endpoint.js";
 import type { RpcEndpoint } from "./endpoint.js";
 import { remoteError } from "./protocol.js";
@@ -79,6 +79,25 @@ export interface RemoteServicesOptions {
 }
 
 /**
+ * Provides each ref, on `ctx`, as an async proxy to services exposed on the other side of
+ * `endpoint` (see `exposeServices`): every method returns a Promise that performs
+ * `endpoint.call(ref.id, method, args)`. For plugins whose endpoint only becomes available
+ * inside setup (e.g. taken from `use(HostRef)` on the renderer side); protocol errors of the
+ * endpoint go to `kernel.error` and the subscription is released when the plugin is disposed.
+ */
+export function provideRemoteServices(
+  ctx: PluginContext,
+  endpoint: RpcEndpoint,
+  refs: readonly ServiceRef<object>[],
+): void {
+  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
+  const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
+    ctx.emit("kernel.error", error);
+  });
+  ctx.onDispose(off);
+}
+
+/**
  * A plugin that provides each ref as an async proxy to services exposed on the other side of
  * `endpoint` (see `exposeServices`): every method returns a Promise that performs
  * `endpoint.call(ref.id, method, args)`. As an ordinary provider it takes part in dependsOn
@@ -91,11 +110,7 @@ export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefi
     id,
     version,
     setup(ctx) {
-      for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
-      const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
-        ctx.emit("kernel.error", error);
-      });
-      ctx.onDispose(off);
+      provideRemoteServices(ctx, endpoint, refs);
     },
   };
 }

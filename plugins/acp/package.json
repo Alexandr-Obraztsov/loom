@@ -8,7 +8,8 @@
   },
   "loom": {
     "id": "acp",
-    "main": "./src/main.ts"
+    "main": "./src/main.ts",
+    "renderer": "./src/renderer.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
@@ -16,6 +17,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.4.0",
+    "@loom/host": "workspace:*",
     "@loom/sdk": "workspace:*"
   }
 }

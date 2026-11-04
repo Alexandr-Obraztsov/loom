@@ -1,0 +1,19 @@
+{
+  "name": "@loom/plugin-claude-code",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "loom": {
+    "id": "claude-code",
+    "main": "./src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "echo \"no benchmarks yet\""
+  },
+  "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.100.0",
+    "@loom/plugin-acp": "workspace:*",
+    "@loom/sdk": "workspace:*"
+  }
+}
