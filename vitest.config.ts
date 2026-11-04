@@ -83,6 +83,8 @@ export default defineConfig({
         "plugins/*/src/**": threshold,
         "plugins/claude-code/src/**": threshold,
         "plugins/storage/src/**": threshold,
+        "plugins/app/src/**": threshold,
+        "plugins/layout-bare/src/**": threshold,
       },
     },
   },
