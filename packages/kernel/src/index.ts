@@ -31,3 +31,13 @@ export type { Kernel, KernelConfig, KernelOptions, KernelServices } from "./core
 export { BeforeInstallHook, PluginsRef } from "./core/plugins-service.js";
 export type { PluginsService } from "./core/plugins-service.js";
 export type { ReconcileDiff } from "./core/reconcile.js";
+export { createRpcEndpoint } from "./rpc/endpoint.js";
+export type { RpcEndpoint, RpcHandler } from "./rpc/endpoint.js";
+export { createMemoryTransportPair } from "./rpc/memory-transport.js";
+export type { MemoryTransport } from "./rpc/memory-transport.js";
+export type { AbortControllerLike, AbortSignalLike } from "./rpc/platform.js";
+export type { Outcome, RpcMessage, SerializedError, Transport } from "./rpc/protocol.js";
+export { exposeHooks } from "./rpc/remote-hooks.js";
+export { exposeServices, remoteServicesPlugin } from "./rpc/remote-services.js";
+export type { RemoteServicesOptions } from "./rpc/remote-services.js";
+export { tapRemote } from "./rpc/remote-taps.js";

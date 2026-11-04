@@ -44,6 +44,20 @@ export interface Kernel {
   dispose(): Promise<void>;
 }
 
+/** Hook-ins for sibling layers (rpc): taps under an arbitrary owner and `kernel.error` reporting. Not exported from the package. */
+export interface KernelInternals {
+  tap: HookRegistry["tap"];
+  report(error: unknown): void;
+}
+
+const internals = new WeakMap<Kernel, KernelInternals>();
+
+export function kernelInternals(kernel: Kernel): KernelInternals {
+  const found = internals.get(kernel);
+  if (!found) throw new TypeError("Not a kernel created by createKernel");
+  return found;
+}
+
 const disposedError = (): LoomError => new LoomError("DISPOSED", "Kernel is disposed");
 
 /** Plugins whose `plugins[id]` config changed reload; changed winners reload everything on a fresh registry. */
@@ -98,7 +112,7 @@ export function createKernel(options: KernelOptions = {}): Kernel {
     registry.provide(PluginsRef, pluginsService, KERNEL_ID);
   });
 
-  return {
+  const kernel: Kernel = {
     reconcile: (desired) =>
       submit((current) => ({
         catalog: desired.map((def) => ({
@@ -133,4 +147,11 @@ export function createKernel(options: KernelOptions = {}): Kernel {
       return run;
     },
   };
+  internals.set(kernel, {
+    tap: (hook, owner, opts, fn) => (live(), rt.hooks.tap(hook, owner, opts, fn)),
+    report: (error) => {
+      rt.report(error);
+    },
+  });
+  return kernel;
 }
