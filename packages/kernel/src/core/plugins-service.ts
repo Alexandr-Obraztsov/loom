@@ -10,7 +10,7 @@ import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
  * would wait for the reconcile that is running the plugin: a deadlock).
  *
  * Plugins can change one catalogue entry at a time but cannot trigger a full
- * `reconcile()` (R12): replacing the whole plugin set belongs to the host that
+ * `reconcile()`: replacing the whole plugin set belongs to the host that
  * owns discovery and trust, and a plugin able to do it could unload every other
  * plugin, or itself mid-setup, bypassing BeforeInstallHook for the rest.
  */
@@ -98,7 +98,13 @@ export function createPluginsService(host: PluginsServiceHost): PluginsService {
       }),
     disable: (id) => host.submit(setEnabled(id, false)),
     reload(def) {
-      if (!host.catalog().some((e) => e.def.id === def.id)) return install(def);
+      let known: boolean;
+      try {
+        known = host.catalog().some((e) => e.def.id === def.id);
+      } catch (e) {
+        return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+      }
+      if (!known) return install(def);
       // Re-checked in the queue: an uninstall queued earlier must not let reload skip BeforeInstallHook.
       return host.submit((catalog) => ({
         catalog: upsert(catalog, { def, enabled: entryOf(catalog, def.id).enabled }),

@@ -17,7 +17,7 @@ export interface RpcEndpoint {
   handle(target: string, impl: RpcHandler): () => void;
   /**
    * Sends `bye` and detaches: pending calls reject with RPC_DISCONNECTED and in-flight handlers
-   * abort here; the peer handles `bye` like a transport close (R14).
+   * abort here; the peer handles `bye` like a transport close.
    */
   close(): void;
 }
@@ -33,6 +33,8 @@ export interface RpcChannel {
   nextId(): number;
   /** Sends unless closed; throws what the transport throws. */
   send(msg: RpcMessage): void;
+  /** Sends a reply nobody awaits: a failure is reported to the protocol-error sinks and the dead endpoint is shut down. */
+  sendReply(msg: RpcMessage): void;
   onTapMessage(cb: (msg: TapMessage) => void): void;
   /** Runs `cb` once on close (immediately if already closed). */
   onClose(cb: () => void): () => void;
@@ -149,6 +151,15 @@ class Endpoint implements RpcEndpoint, RpcChannel {
     if (!this.closed) this.transport.send(msg);
   }
 
+  sendReply(msg: RpcMessage): void {
+    try {
+      this.send(msg);
+    } catch (e) {
+      this.protocolError(`Cannot send RPC reply: ${describe(e)}`, msg);
+      this.shutdown();
+    }
+  }
+
   onTapMessage(cb: (msg: TapMessage) => void): void {
     this.tapListeners.add(cb);
   }
@@ -173,7 +184,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
     };
   }
 
-  /** Transport callback: validates, dispatches, and never throws (R13). */
+  /** Transport callback: validates, dispatches, and never throws. */
   private accept(raw: unknown): void {
     try {
       if (isRpcMessage(raw)) this.receive(raw);
@@ -245,13 +256,13 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   private reply(id: number, outcome: Settlement): void {
     if (!this.incoming.delete(id)) return;
     if ("error" in outcome) {
-      this.send({ type: "error", id, error: serializeError(outcome.error) });
+      this.sendReply({ type: "error", id, error: serializeError(outcome.error) });
       return;
     }
     try {
       this.send({ type: "result", id, value: outcome.value });
     } catch (e) {
-      this.send({ type: "error", id, error: serializeError(remoteError(`Cannot send result: ${describe(e)}`)) });
+      this.sendReply({ type: "error", id, error: serializeError(remoteError(`Cannot send result: ${describe(e)}`)) });
     }
   }
 

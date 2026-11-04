@@ -7,6 +7,16 @@
 import type { ZodType } from 'zod';
 
 // @public
+export interface AbortSignalLike {
+    // (undocumented)
+    readonly aborted: boolean;
+    // (undocumented)
+    addEventListener(type: "abort", listener: () => void): void;
+    // (undocumented)
+    removeEventListener(type: "abort", listener: () => void): void;
+}
+
+// @public
 export function attach<O>(parentId: string, input: string, value: O & {
     id?: string;
 }, opts?: {
@@ -206,6 +216,16 @@ export interface ResolvedNode<O = unknown> {
 }
 
 // @public (undocumented)
+export interface RpcEndpoint {
+    call(target: string, method: string, args: unknown[], signal?: AbortSignalLike): Promise<unknown>;
+    close(): void;
+    handle(target: string, impl: RpcHandler): () => void;
+}
+
+// @public (undocumented)
+export type RpcHandler = (method: string, args: unknown[], signal: AbortSignalLike) => Promise<unknown>;
+
+// @public (undocumented)
 export interface ServiceRef<T> {
     // (undocumented)
     readonly __type?: T;
@@ -226,6 +246,11 @@ export interface TapOptions<C> {
     // (undocumented)
     priority?: number;
 }
+
+// @public
+export function tapRemote<C, R>(ctx: PluginContext, endpoint: RpcEndpoint, hook: HookRef<C, R>, opts: TapOptions<C> & {
+    timeoutMs?: number;
+}, fn: (c: C, next: Next<C, R>) => R): void;
 
 // (No @packageDocumentation comment for this package)
 

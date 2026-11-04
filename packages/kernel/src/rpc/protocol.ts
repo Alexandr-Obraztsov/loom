@@ -68,7 +68,7 @@ const shapes: Readonly<Record<RpcMessage["type"], (m: Fields) => boolean>> = {
   bye: () => true,
 };
 
-/** Shape check for incoming messages (R13): the endpoint drops and reports anything else. */
+/** Shape check for incoming messages: the endpoint drops and reports anything else. */
 export function isRpcMessage(v: unknown): v is RpcMessage {
   if (!isObject(v) || typeof v.type !== "string" || !Object.hasOwn(shapes, v.type)) return false;
   return shapes[v.type as RpcMessage["type"]](v);

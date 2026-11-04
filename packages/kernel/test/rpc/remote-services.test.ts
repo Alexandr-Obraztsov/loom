@@ -63,6 +63,14 @@ describe("remote services", () => {
     expect((await rejection(proxy.greet("bo"))).code).toBe("SERVICE_MISSING");
   });
 
+  it("inherited members such as constructor are not callable remotely", async () => {
+    const { win } = await setup();
+    const proxy = win.services.use(GreeterRef) as unknown as Record<string, () => Promise<unknown>>;
+    for (const name of ["constructor", "toString", "hasOwnProperty"]) {
+      expect((await rejection(proxy[name]?.() as Promise<unknown>)).code).toBe("RPC_REMOTE_ERROR");
+    }
+  });
+
   it("non-function members reject with RPC_REMOTE_ERROR; stopping exposure removes handlers", async () => {
     const { win, stop } = await setup();
     const proxy = win.services.use(GreeterRef) as unknown as Record<string, () => Promise<unknown>>;

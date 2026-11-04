@@ -14,7 +14,7 @@ function sendOutcome(channel: RpcChannel, id: number, phase: "next" | "tap", out
     channel.send({ type: "tap-result", id, for: phase, outcome });
   } catch (e) {
     const error = serializeError(remoteError(`Cannot send hook result: ${describe(e)}`));
-    channel.send({ type: "tap-result", id, for: phase, outcome: { ok: false, error } });
+    channel.sendReply({ type: "tap-result", id, for: phase, outcome: { ok: false, error } });
   }
 }
 

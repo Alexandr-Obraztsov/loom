@@ -204,3 +204,40 @@ describe("rpc endpoint edge cases", () => {
     expect(() => closers[0]?.()).not.toThrow();
   });
 });
+
+describe("rpc endpoint reply failures", () => {
+  it("a reply that cannot be sent is reported once, shuts the endpoint down and rejects nothing unhandled", async () => {
+    const [ta, tb] = createMemoryTransportPair();
+    const reports: LoomError[] = [];
+    const unhandled: unknown[] = [];
+    const onUnhandled = (e: unknown): void => {
+      unhandled.push(e);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    const a = createRpcEndpoint(ta);
+    const b = createRpcEndpoint(tb, { onProtocolError: (e) => reports.push(e) });
+    let release: () => void = () => undefined;
+    b.handle(
+      "t",
+      () =>
+        new Promise<number>((r) => {
+          release = () => {
+            r(1);
+          };
+        }),
+    );
+    const call = a.call("t", "m", []);
+    call.catch(() => undefined);
+    await tick();
+    tb.send = () => {
+      throw new Error("transport dead");
+    };
+    release();
+    await tick();
+    await tick();
+    process.off("unhandledRejection", onUnhandled);
+    expect(unhandled).toEqual([]);
+    expect(reports.map((e) => e.code)).toEqual(["RPC_REMOTE_ERROR"]);
+    expect(channelOf(b).closed).toBe(true);
+  });
+});

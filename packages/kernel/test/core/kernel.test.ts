@@ -167,8 +167,8 @@ describe("kernel dispose and broken state", () => {
     const disposed = [
       await rejection(k.reconcile([])),
       await rejection(k.setConfig({})),
-      await rejection(k.dispose()),
       await rejection(must(svc).install(a)),
+      await rejection(must(svc).reload(a)),
       await rejection(must(svc).uninstall("a")),
       thrown(() => k.run(hook, 1, (n) => n)),
       thrown(() => k.on("x", () => undefined)),
@@ -179,6 +179,19 @@ describe("kernel dispose and broken state", () => {
     ];
     expect(disposed.map((e) => e.code)).toEqual(Array<string>(disposed.length).fill("DISPOSED"));
     expect(disposed[0]).toBeInstanceOf(LoomError);
+  });
+
+  it("dispose is idempotent: a second call returns the same promise and resolves", async () => {
+    const log: string[] = [];
+    const k = createKernel();
+    await k.reconcile([plugin(log, "a")]);
+    log.length = 0;
+    const first = k.dispose();
+    const second = k.dispose();
+    expect(second).toBe(first);
+    await Promise.all([first, second]);
+    await expect(k.dispose()).resolves.toBeUndefined();
+    expect(log).toEqual(["dispose:a@1.0.0"]);
   });
 
   it("rollback that itself fails leaves the kernel broken but consistent", async () => {

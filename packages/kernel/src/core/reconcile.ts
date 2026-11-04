@@ -118,7 +118,10 @@ export interface ReconcileRuntime {
  * affected and added ones in order. If a setup throws, everything set up in
  * this pass is disposed in reverse, `restore()` runs, and the torn-down
  * versions are set up again in order; the result is a SETUP_FAILED naming
- * the failing plugin, with the thrown value as `cause`.
+ * the failing plugin, with the thrown value as `cause`. When the cause is a
+ * LoomError, `pluginIds` is the union of the failing plugin and the cause's
+ * plugins (e.g. both sides of a service conflict) and `details.causeCode` is
+ * the cause's code.
  *
  * If re-setting up a previous version fails too, the kernel is broken: that
  * plugin and its dependents in the snapshot are left down, each failure is
@@ -137,10 +140,15 @@ export async function applyReconcile(plan: ReconcilePlan, rt: ReconcileRuntime):
       for (const d of done.reverse()) await rt.teardown(d);
       rt.restore();
       const notRestored = await restoreSnapshot(plan, rt);
+      const causeCode = cause instanceof LoomError ? cause.code : undefined;
+      const details = {
+        ...(causeCode ? { causeCode } : {}),
+        ...(notRestored.length > 0 ? { rollbackFailed: true, notRestored } : {}),
+      };
       throw new LoomError("SETUP_FAILED", `Setup of plugin "${def.id}" failed${notRestored.length > 0 ? "; rollback failed" : ""}`, {
-        pluginIds: [def.id],
+        pluginIds: cause instanceof LoomError ? [...new Set([def.id, ...cause.pluginIds])] : [def.id],
         cause,
-        ...(notRestored.length > 0 ? { details: { rollbackFailed: true, notRestored } } : {}),
+        ...(Object.keys(details).length > 0 ? { details } : {}),
       });
     }
     done.push(def);

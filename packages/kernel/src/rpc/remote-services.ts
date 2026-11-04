@@ -19,7 +19,8 @@ export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: read
   const removers = refs.map((ref) =>
     endpoint.handle(ref.id, async (method, args) => {
       const service = kernel.services.use(ref) as Record<string, unknown>;
-      const member = service[method];
+      // only the service's own enumerable members: `constructor` and prototype members are not callable remotely
+      const member = Object.hasOwn(service, method) && Object.prototype.propertyIsEnumerable.call(service, method) ? service[method] : undefined;
       if (typeof member !== "function") {
         throw remoteError(`Service "${ref.id}" has no method "${method}"`);
       }

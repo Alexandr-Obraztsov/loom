@@ -1,5 +1,6 @@
-export { attach, BeforeInstallHook, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef } from "@loom/kernel";
+export { attach, BeforeInstallHook, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef, tapRemote } from "@loom/kernel";
 export type {
+  AbortSignalLike,
   ExtensionContext,
   ExtensionDefinition,
   HookRef,
@@ -12,6 +13,8 @@ export type {
   PluginsService,
   ReconcileDiff,
   ResolvedNode,
+  RpcEndpoint,
+  RpcHandler,
   ServiceRef,
   TapOptions,
 } from "@loom/kernel";

@@ -75,6 +75,7 @@ export function createKernel(options: KernelOptions = {}): Kernel {
   let queue: Promise<unknown> = Promise.resolve();
   let closing = false;
   let dead = false;
+  let disposal: Promise<void> | undefined;
 
   const live = (): void => {
     if (dead) throw disposedError();
@@ -136,13 +137,13 @@ export function createKernel(options: KernelOptions = {}): Kernel {
         await rt.pass(configRequest(catalog, rt.config, config));
       }),
     dispose: () => {
-      const run = enqueue(async () => {
+      disposal ??= enqueue(async () => {
         await rt.disposeAll();
         catalog = [];
         dead = true;
       });
       closing = true;
-      return run;
+      return disposal;
     },
   };
   internals.set(kernel, {

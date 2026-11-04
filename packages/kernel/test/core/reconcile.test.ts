@@ -139,7 +139,8 @@ describe("reconcile rollback", () => {
     });
     const err = await rejection(k.reconcile([a, intruder]));
     expect(err.code).toBe("SETUP_FAILED");
-    expect(err.pluginIds).toEqual(["b"]);
+    expect(err.pluginIds).toEqual(["b", "a"]);
+    expect(err.details).toEqual({ causeCode: "SERVICE_CONFLICT" });
     expect((err.cause as LoomError).code).toBe("SERVICE_CONFLICT");
     expect(ids(k.plugins)).toEqual(["a"]);
     expect(k.services.providerOf(refOf("a"))).toBe("a");

@@ -150,9 +150,11 @@ export class KernelRuntime {
    */
   async disposeAll(): Promise<void> {
     const resume = this.hooks.defer();
-    // teardown never rejects, so the batch always ends here
-    for (const def of [...this.active].reverse()) await this.teardown(def.id);
-    resume();
+    try {
+      for (const def of [...this.active].reverse()) await this.teardown(def.id);
+    } finally {
+      resume();
+    }
     this.active = [];
     this.states.clear();
     this.tree = EMPTY_TREE;

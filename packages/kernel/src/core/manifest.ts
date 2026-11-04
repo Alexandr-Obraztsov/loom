@@ -10,13 +10,13 @@ const rangeMap = z.record(
   z.string().refine(isRange, "invalid semver range"),
 );
 
-const inputSpec = z.object({
+const inputSpec = z.strictObject({
   multiple: z.boolean().optional(),
   required: z.boolean().optional(),
   schema: z.custom((v) => typeof v === "object" && v !== null, "must be a zod schema").optional(),
 });
 
-const extension = z.object({
+const extension = z.strictObject({
   id: z.string().min(1),
   attachTo: z.object({ id: z.string().min(1), input: z.string().min(1) }).optional(),
   inputs: z.record(z.string(), inputSpec).optional(),
@@ -35,7 +35,7 @@ function uniqueIds(list: readonly ExtensionDefinition[] | undefined, key: string
 }
 
 const schema = z
-  .object({
+  .strictObject({
     id: z.string().regex(/^[a-z][a-z0-9-]*(\/[a-z0-9-]+)?$/, "invalid plugin id"),
     version: z.string().refine(isVersion, "invalid semver version"),
     scope: z.enum(["builtin", "user", "project"]).optional(),

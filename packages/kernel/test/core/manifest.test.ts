@@ -18,6 +18,13 @@ function issuesOf(def: unknown): readonly unknown[] {
 const ext = (id: string): { id: string; factory: () => number } => ({ id, factory: () => 1 });
 
 describe("validatePlugin", () => {
+  it("rejects unknown keys on plugins and extensions, naming the key", () => {
+    const top = JSON.stringify(issuesOf({ id: "a", version: "1.0.0", dependOn: { b: "^1.0.0" } }));
+    expect(top).toContain("dependOn");
+    const nested = JSON.stringify(issuesOf({ id: "a", version: "1.0.0", extensions: [{ ...ext("e"), atachTo: {} }] }));
+    expect(nested).toContain("atachTo");
+  });
+
   it("accepts a minimal plugin {id, version}", () => {
     expect(validatePlugin({ id: "a", version: "1.0.0" }).id).toBe("a");
   });
