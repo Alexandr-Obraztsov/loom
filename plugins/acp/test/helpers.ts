@@ -70,7 +70,7 @@ class FakeAgent {
   /** Makes `initialize` fail. */
   initError: string | undefined;
   /** Makes `session/prompt` fail with a JSON-RPC error. */
-  promptError: string | undefined;
+  promptError: Error | string | undefined;
   readonly links: FakeLink[] = [];
   readonly specs: AgentSpec[] = [];
   private sessions = 0;
@@ -86,7 +86,10 @@ class FakeAgent {
       })
       .onRequest("session/new", () => ({ sessionId: `acp-${String(++this.sessions)}` }))
       .onRequest("session/prompt", async ({ params, client }) => {
-        if (this.promptError) throw new Error(this.promptError);
+        if (this.promptError)
+          throw typeof this.promptError === "string"
+            ? new Error(this.promptError)
+            : this.promptError;
         const cancelled = new Promise<void>((resolve) => {
           this.cancel = resolve;
         });

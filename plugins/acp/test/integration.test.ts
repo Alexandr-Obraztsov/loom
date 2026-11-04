@@ -1,47 +1,8 @@
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import { createKernel, createServiceRef, definePlugin } from "@loom/kernel";
-import type { Kernel } from "@loom/kernel";
-import { AgentRegistryRef, PromptHook, SessionsRef, ToolCallHook } from "../src/api.js";
-import type { AgentSpec, Sessions } from "../src/api.js";
-import acp from "../src/main.js";
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { boot, kernels, pidFile } from "./boot.js";
+import type { Sessions } from "../src/api.js";
 import { itemsOf, only } from "./helpers.js";
-
-const STUB = fileURLToPath(new URL("./fixtures/stub-agent.mjs", import.meta.url));
-const stub: AgentSpec = { id: "stub", title: "Stub", command: process.execPath, args: [STUB] };
-const broken: AgentSpec = {
-  id: "broken",
-  title: "Broken",
-  command: process.execPath,
-  args: ["-e", `process.stderr.write("not logged in\\n", () => process.exit(1))`],
-};
-
-const kernels: Kernel[] = [];
-afterEach(async () => {
-  await Promise.all(kernels.splice(0).map((k) => k.dispose()));
-});
-
-async function boot(
-  decide?: () => Promise<{ optionId: string } | null | undefined>,
-): Promise<Sessions> {
-  const Out = createServiceRef<{ sessions: Sessions }>("test.out");
-  const user = definePlugin({
-    id: "user",
-    version: "1.0.0",
-    dependsOn: { acp: "*" },
-    setup(ctx) {
-      ctx.use(AgentRegistryRef).add(stub);
-      ctx.use(AgentRegistryRef).add(broken);
-      if (decide) ctx.tap(ToolCallHook, {}, decide);
-      ctx.tap(PromptHook, {}, async (c, next) => next({ ...c, text: c.text.toUpperCase() }));
-      ctx.provide(Out, { sessions: ctx.use(SessionsRef) });
-    },
-  });
-  const kernel = createKernel({ config: {} });
-  kernels.push(kernel);
-  await kernel.reconcile([acp, user]);
-  return kernel.services.use(Out).sessions;
-}
 
 const text = async (s: Sessions, id: string) =>
   itemsOf((await s.waitUpdates(id, -1, 1)).items, "agent");
@@ -103,6 +64,28 @@ describe("acp plugin with real agent processes", () => {
 
     await s.prompt(sessionId, "again");
     await expect.poll(async () => (await text(s, sessionId)).at(-1)?.text).toBe("echo:AGAIN");
+  });
+});
+
+describe("acp plugin shutdown with real agent processes", () => {
+  it("dispose while the handshake never completes kills the agent process", async () => {
+    const s = await boot();
+    const starting = s.ensure({ agentId: "silent", cwd: process.cwd() });
+    const rejected = expect(starting).rejects.toMatchObject({ code: "AGENT_START_FAILED" });
+    let pid = 0;
+    await expect
+      .poll(() => {
+        try {
+          pid = Number(readFileSync(pidFile, "utf8"));
+        } catch {
+          pid = 0;
+        }
+        return pid;
+      })
+      .toBeGreaterThan(0);
+    await kernels.pop()?.dispose();
+    await rejected;
+    expect(() => process.kill(pid, 0)).toThrow(/ESRCH/);
   });
 
   it("dispose kills agent processes", async () => {

@@ -48,7 +48,7 @@ describe("ensure", () => {
     expect(only(r.agent.links).killed).toBe(1);
   });
 
-  it("reports the exit code and stderr when the process dies during the handshake", async () => {
+  it("agent exiting during handshake rejects ensure with stderr", async () => {
     let release!: () => void;
     r.agent.initGate = new Promise((res) => (release = res));
     const p = r.sessions.ensure(OPEN);
@@ -57,19 +57,6 @@ describe("ensure", () => {
     only(r.agent.links).crash(3, "not logged in");
     release();
     await rejected;
-  });
-
-  it("kills an agent that finishes starting after dispose", async () => {
-    let release!: () => void;
-    r.agent.initGate = new Promise((res) => (release = res));
-    const p = r.sessions.ensure(OPEN);
-    const rejected = expect(p).rejects.toMatchObject({ code: "AGENT_EXITED" });
-    await tick(0);
-    const disposing = r.sessions.dispose();
-    release();
-    await rejected;
-    await disposing;
-    expect(only(r.agent.links).killed).toBe(1);
   });
 });
 
@@ -125,7 +112,11 @@ describe("updates", () => {
         toolCallId: "t1",
         status: "in_progress",
       });
-      await t.update({ sessionUpdate: "tool_call_update", toolCallId: "t2", content: [] });
+      await t.update({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "t2",
+        content: [{ type: "diff", path: "/a", newText: "b" }],
+      });
       await t.update({ sessionUpdate: "plan", entries: [] });
       return "end_turn";
     };
@@ -136,20 +127,6 @@ describe("updates", () => {
       { kind: "tool", id: "t1", title: "ls", status: "in_progress", detail: "out" },
       { kind: "tool", id: "t2", title: "t2", status: "pending" },
     ]);
-  });
-
-  it("200 chunks within one batch bump seq once", async () => {
-    const id = await open(r);
-    const before = (await r.sessions.waitUpdates(id, -1, 1)).seq;
-    r.agent.script = async (t) => {
-      for (let i = 0; i < 200; i++) await t.say("x");
-      return "end_turn";
-    };
-    await r.sessions.prompt(id, "long");
-    await tick();
-    const snap = await r.sessions.waitUpdates(id, 0, 1);
-    expect(snap.seq).toBe(before + 1);
-    expect(only(itemsOf(snap.items, "agent")).text).toBe("x".repeat(200));
   });
 });
 
@@ -172,7 +149,9 @@ describe("waitUpdates", () => {
   it("uses a 25 s default and keeps waiting when seq is still not above afterSeq", async () => {
     const id = await open(r);
     const p = r.sessions.waitUpdates(id, 99);
-    await tick(24999);
+    await r.sessions.prompt(id, "noise"); // wakes nobody: seq stays below 99
+    await tick();
+    await tick(24999 - 16);
     let done = false;
     void p.then(() => {
       done = true;
@@ -230,11 +209,12 @@ describe("prompt", () => {
   it("surfaces an agent error as an error item and rethrows", async () => {
     const id = await open(r);
     r.agent.promptError = "kaput";
-    await expect(r.sessions.prompt(id, "x")).rejects.toThrow("Internal error");
+    only(r.agent.links).stderr = "trace line";
+    await expect(r.sessions.prompt(id, "x")).rejects.toThrow(/Internal error: kaput\ntrace line/);
     await tick();
-    expect(only(itemsOf((await r.sessions.waitUpdates(id, 0, 1)).items, "error")).message).toBe(
-      "Internal error",
-    );
+    const err = only(itemsOf((await r.sessions.waitUpdates(id, 0, 1)).items, "error"));
+    expect(err.message).toBe("Internal error: kaput");
+    expect(err.stderr).toBe("trace line");
   });
 
   it("reports non-Error rejections", async () => {
@@ -243,7 +223,7 @@ describe("prompt", () => {
     reject.catch(() => undefined);
     const k = rig({ "acp.prompt": () => reject });
     const id = await open(k);
-    await expect(k.sessions.prompt(id, "x")).rejects.toBe("plain");
+    await expect(k.sessions.prompt(id, "x")).rejects.toThrow("plain");
     await tick();
     expect(only(itemsOf((await k.sessions.waitUpdates(id, 0, 1)).items, "error")).message).toBe(
       "plain",

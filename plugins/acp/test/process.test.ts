@@ -46,6 +46,7 @@ describe("spawnAgent", () => {
     );
     const info = await p.exited;
     expect(info.error).toContain("ENOENT");
+    await p.kill(); // nothing to signal
   });
 
   it("passes env and cwd", async () => {

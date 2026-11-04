@@ -79,9 +79,8 @@ export class SessionLog {
 
   resolvePermission(id: string, resolved: string): void {
     this.enqueue(() => {
-      const at = this.items.findIndex((i) => i.kind === "permission" && i.id === id);
-      const item = this.items[at];
-      if (item?.kind === "permission") this.items[at] = { ...item, resolved };
+      // ids are unique across kinds
+      this.items = this.items.map((i) => (i.id === id ? ({ ...i, resolved } as SessionItem) : i));
     });
   }
 

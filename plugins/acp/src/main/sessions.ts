@@ -1,4 +1,4 @@
-import { ClientApp, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
+import { ClientApp, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import type { HookRef } from "@loom/sdk";
 import { AcpError, PromptHook, ToolCallHook } from "../api.js";
 import type { AgentRegistry, AgentSpec, SessionSnapshot, Sessions } from "../api.js";
@@ -27,8 +27,16 @@ interface Rec {
 }
 
 const describeExit = (info: ExitInfo): string =>
-  info.error ??
-  (info.signal ? `сигнал ${info.signal}` : `код ${info.code === null ? "?" : String(info.code)}`);
+  info.error ?? (info.signal ? `сигнал ${info.signal}` : `код ${String(info.code)}`);
+
+export const HANDSHAKE_TIMEOUT_MS = 30000;
+
+const detailsOf = (e: unknown): string | undefined => {
+  if (!(e instanceof RequestError)) return undefined;
+  const data = e.data as { details?: unknown } | null | undefined;
+  if (data === undefined || data === null) return undefined;
+  return typeof data.details === "string" ? data.details : JSON.stringify(data);
+};
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -41,7 +49,10 @@ export class SessionsManager implements Sessions {
   private readonly recs = new Map<string, Rec>();
   private current: Rec | undefined;
   private starting: Promise<Rec> | undefined;
-  private disposed = false;
+  /** Agents whose handshake is still running; `dispose` must reach them too. */
+  private readonly pendingStarts = new Set<AgentLink>();
+  /** Agents whose handshake is still running; `dispose` must reach them too. */
+  private readonly starting_ = new Set<AgentLink>();
 
   constructor(private readonly deps: SessionsDeps) {}
 
@@ -60,6 +71,7 @@ export class SessionsManager implements Sessions {
     if (rec.running)
       throw new AcpError("SESSION_BUSY", "Агент ещё отвечает на предыдущее сообщение");
     rec.running = true;
+    rec.log.setBusy(true); // Stop is shown even while the agent (re)starts
     try {
       const final = await this.deps.run(PromptHook, { sessionId, text }, (c) =>
         Promise.resolve(c.text),
@@ -69,13 +81,22 @@ export class SessionsManager implements Sessions {
       // an exit has already put its own error item into the log
       if (!(e instanceof AcpError && e.code === "AGENT_EXITED")) {
         if (e instanceof AcpError) rec.log.addError(e.reason, e.stderr);
-        else rec.log.addError(messageOf(e));
+        else this.failTurn(rec, e);
       }
       throw e;
     } finally {
       rec.running = false;
       rec.log.setBusy(false);
     }
+  }
+
+  /** A non-ACP failure (e.g. the agent's JSON-RPC error): log it with details and the stderr tail. */
+  private failTurn(rec: Rec, e: unknown): never {
+    const details = detailsOf(e);
+    const reason = details ? `${messageOf(e)}: ${details}` : messageOf(e);
+    const stderr = rec.link?.stderrTail() || undefined;
+    rec.log.addError(reason, stderr);
+    throw new Error(stderr ? `${reason}\n${stderr}` : reason, { cause: e });
   }
 
   async cancel(sessionId: string): Promise<void> {
@@ -105,7 +126,8 @@ export class SessionsManager implements Sessions {
 
   /** Kills every agent process; further `ensure` calls are not expected. */
   async dispose(): Promise<void> {
-    this.disposed = true;
+    await Promise.all([...this.pendingStarts].map((link) => link.kill()));
+    await this.starting?.catch(() => undefined); // a start that just finished is in `recs` afterwards
     await Promise.all([...this.recs.values()].map((rec) => this.closeRec(rec)));
   }
 
@@ -134,10 +156,6 @@ export class SessionsManager implements Sessions {
       closed: false,
     };
     await this.start(rec);
-    if (this.disposed) {
-      await rec.link?.kill();
-      throw new AcpError("AGENT_EXITED", "Плагин остановлен");
-    }
     this.recs.set(id, rec);
     return rec;
   }
@@ -150,8 +168,20 @@ export class SessionsManager implements Sessions {
     void link.exited.then((info) => {
       this.onExit(rec, link, info);
     });
+    this.pendingStarts.add(link);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      rec.acpId = await this.handshake(link, rec.cwd);
+      rec.acpId = await Promise.race([
+        this.handshake(link, rec.cwd),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            reject(new Error(`агент не ответил за ${String(HANDSHAKE_TIMEOUT_MS / 1000)} с`));
+          }, HANDSHAKE_TIMEOUT_MS);
+        }),
+        link.exited.then((): never => {
+          throw new Error("процесс завершился во время запуска");
+        }),
+      ]);
       rec.ready = true;
     } catch (e) {
       await link.kill();
@@ -162,6 +192,9 @@ export class SessionsManager implements Sessions {
         `Не удалось запустить агента «${rec.spec.title}»: ${killed ? messageOf(e) : describeExit(info)}`,
         link.stderrTail() || undefined,
       );
+    } finally {
+      clearTimeout(timer);
+      this.pendingStarts.delete(link);
     }
   }
 
@@ -198,7 +231,6 @@ export class SessionsManager implements Sessions {
     if (!rec.ready) await this.start(rec);
     const link = rec.link as AgentLink;
     rec.log.addUser(text);
-    rec.log.setBusy(true);
     const request = link.connection.agent
       .request("session/prompt", {
         sessionId: rec.acpId as string,
@@ -217,7 +249,7 @@ export class SessionsManager implements Sessions {
     rec.broker.cancelAll();
     rec.log.dispose();
     this.recs.delete(rec.id);
-    if (this.current === rec) this.current = undefined;
+    this.current = undefined; // one session per window
     await rec.link?.kill();
   }
 }

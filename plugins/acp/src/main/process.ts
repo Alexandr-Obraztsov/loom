@@ -6,6 +6,10 @@ import type { AgentSpec } from "../api.js";
 
 export const STDERR_TAIL_BYTES = 4096;
 export const KILL_GRACE_MS = 2000;
+/** After `exit`, how long stdio may stay open (a grandchild holding the pipes) before we stop waiting. */
+const DRAIN_GRACE_MS = 500;
+/** Hard bound on `kill()` after SIGKILL has been sent. */
+const KILL_HARD_MS = 3000;
 
 export interface ExitInfo {
   code: number | null;
@@ -28,6 +32,7 @@ export function spawnAgent(spec: AgentSpec, cwd: string): AgentProcess {
     cwd,
     env: { ...process.env, ...spec.env },
     stdio: ["pipe", "pipe", "pipe"],
+    detached: true, // own process group: kill() takes the whole tree
   });
   let tail = Buffer.alloc(0);
   child.stderr.on("data", (chunk: Buffer) => {
@@ -38,18 +43,35 @@ export function spawnAgent(spec: AgentSpec, cwd: string): AgentProcess {
 
   let done = false;
   const exited = new Promise<ExitInfo>((resolve) => {
+    let drain: ReturnType<typeof setTimeout> | undefined;
     const finish = (info: ExitInfo): void => {
       if (done) return;
       done = true;
+      clearTimeout(drain);
       resolve(info);
     };
     child.once("error", (e) => {
       finish({ code: null, signal: null, error: e.message });
     });
+    // `close` waits for stdio to end, which a surviving grandchild can prevent
+    child.once("exit", (code, signal) => {
+      drain = setTimeout(() => {
+        finish({ code, signal });
+      }, DRAIN_GRACE_MS);
+    });
     child.once("close", (code, signal) => {
       finish({ code, signal });
     });
   });
+
+  const signalGroup = (signal: NodeJS.Signals): void => {
+    if (child.pid === undefined) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // the group is already gone
+    }
+  };
 
   return {
     stream: ndJsonStream(
@@ -59,11 +81,24 @@ export function spawnAgent(spec: AgentSpec, cwd: string): AgentProcess {
     exited,
     stderrTail: () => tail.toString("utf8"),
     async kill() {
-      if (done) return;
-      child.kill("SIGTERM");
-      const timer = setTimeout(() => child.kill("SIGKILL"), KILL_GRACE_MS);
-      await exited;
-      clearTimeout(timer);
+      if (done) {
+        signalGroup("SIGKILL"); // leftovers of the tree
+        return;
+      }
+      signalGroup("SIGTERM");
+      const escalate = setTimeout(() => {
+        signalGroup("SIGKILL");
+      }, KILL_GRACE_MS);
+      let hard: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        exited,
+        new Promise((resolve) => {
+          hard = setTimeout(resolve, KILL_GRACE_MS + KILL_HARD_MS);
+        }),
+      ]);
+      clearTimeout(escalate);
+      clearTimeout(hard);
+      signalGroup("SIGKILL"); // a grandchild that outlived the leader
     },
   };
 }
