@@ -1,5 +1,5 @@
 import { LoomError } from "../core/errors.js";
-import { describe, deserializeError, remoteError, serializeError } from "./protocol.js";
+import { describe, deserializeError, isRpcMessage, remoteError, serializeError } from "./protocol.js";
 import { createAbortController } from "./platform.js";
 import type { AbortControllerLike, AbortSignalLike } from "./platform.js";
 import type { RpcMessage, TapMessage, Transport } from "./protocol.js";
@@ -15,8 +15,16 @@ export interface RpcEndpoint {
   call(target: string, method: string, args: unknown[], signal?: AbortSignalLike): Promise<unknown>;
   /** Serves calls for `target`; a second handler for the same target throws SERVICE_CONFLICT. */
   handle(target: string, impl: RpcHandler): () => void;
-  /** Closes this end only: pending calls reject, in-flight handlers abort and their callers get RPC_DISCONNECTED. */
+  /**
+   * Sends `bye` and detaches: pending calls reject with RPC_DISCONNECTED and in-flight handlers
+   * abort here; the peer handles `bye` like a transport close (R14).
+   */
   close(): void;
+}
+
+export interface RpcEndpointOptions {
+  /** Receives malformed or unhandleable incoming messages (RPC_REMOTE_ERROR, `details.message`); they are dropped. */
+  onProtocolError?(error: LoomError): void;
 }
 
 /** Low-level access for remote hooks: tap-* messages, a shared id counter and close notification. */
@@ -28,6 +36,8 @@ export interface RpcChannel {
   onTapMessage(cb: (msg: TapMessage) => void): void;
   /** Runs `cb` once on close (immediately if already closed). */
   onClose(cb: () => void): () => void;
+  /** Adds a protocol error sink; sinks registered under the same `key` report once. */
+  onProtocolError(key: object, cb: (error: LoomError) => void): () => void;
 }
 
 interface Pending {
@@ -61,12 +71,16 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   private readonly incoming = new Map<number, AbortControllerLike>();
   private readonly tapListeners = new Set<(msg: TapMessage) => void>();
   private readonly closeListeners = new Set<() => void>();
+  private readonly protocolSinks = new Map<object, { readonly cb: (error: LoomError) => void; count: number }>();
   private readonly off: readonly (() => void)[];
 
-  constructor(private readonly transport: Transport) {
+  constructor(
+    private readonly transport: Transport,
+    private readonly options: RpcEndpointOptions,
+  ) {
     this.off = [
-      transport.onMessage((msg) => {
-        this.receive(msg);
+      transport.onMessage((msg: unknown) => {
+        this.accept(msg);
       }),
       transport.onClose(() => {
         this.shutdown();
@@ -119,9 +133,10 @@ class Endpoint implements RpcEndpoint, RpcChannel {
 
   close(): void {
     if (this.closed) return;
-    for (const [id, controller] of [...this.incoming]) {
-      this.reply(id, { error: disconnected("Call aborted") });
-      controller.abort();
+    try {
+      this.send({ type: "bye" });
+    } catch {
+      // a transport that cannot even send `bye` is gone; detaching is all that is left
     }
     this.shutdown();
   }
@@ -149,9 +164,45 @@ class Endpoint implements RpcEndpoint, RpcChannel {
     };
   }
 
+  onProtocolError(key: object, cb: (error: LoomError) => void): () => void {
+    const sink = this.protocolSinks.get(key) ?? { cb, count: 0 };
+    sink.count++;
+    this.protocolSinks.set(key, sink);
+    return () => {
+      if (--sink.count === 0 && this.protocolSinks.get(key) === sink) this.protocolSinks.delete(key);
+    };
+  }
+
+  /** Transport callback: validates, dispatches, and never throws (R13). */
+  private accept(raw: unknown): void {
+    try {
+      if (isRpcMessage(raw)) this.receive(raw);
+      else this.protocolError("Malformed RPC message dropped", raw);
+    } catch (e) {
+      this.protocolError(`Failed to handle RPC message: ${describe(e)}`, raw);
+    }
+  }
+
+  private protocolError(text: string, raw: unknown): void {
+    const error = new LoomError("RPC_REMOTE_ERROR", text, { details: { message: raw } });
+    const sinks = [...this.protocolSinks.values()].map((s) => s.cb);
+    const { options } = this;
+    if (options.onProtocolError) sinks.unshift((e) => options.onProtocolError?.(e));
+    for (const cb of sinks) {
+      try {
+        cb(error);
+      } catch {
+        // a failing sink must not throw into the transport
+      }
+    }
+  }
+
   private receive(msg: RpcMessage): void {
     if (this.closed) return;
     switch (msg.type) {
+      case "bye":
+        this.shutdown();
+        return;
       case "call":
         this.serve(msg);
         return;
@@ -227,8 +278,8 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 }
 
-export function createRpcEndpoint(transport: Transport): RpcEndpoint {
-  const endpoint = new Endpoint(transport);
+export function createRpcEndpoint(transport: Transport, options: RpcEndpointOptions = {}): RpcEndpoint {
+  const endpoint = new Endpoint(transport, options);
   const facade: RpcEndpoint = {
     call: (target, method, args, signal) => endpoint.call(target, method, args, signal),
     handle: (target, impl) => endpoint.handle(target, impl),

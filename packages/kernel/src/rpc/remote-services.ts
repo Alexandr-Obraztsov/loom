@@ -1,5 +1,7 @@
+import { kernelInternals } from "../core/kernel.js";
 import type { Kernel } from "../core/kernel.js";
 import type { PluginDefinition, ServiceRef } from "../core/types.js";
+import { channelOf } from "./endpoint.js";
 import type { RpcEndpoint } from "./endpoint.js";
 import { remoteError } from "./protocol.js";
 
@@ -7,9 +9,13 @@ import { remoteError } from "./protocol.js";
  * Serves each ref over `endpoint` under its ref id. Every call resolves the kernel's current
  * provider (so provider changes are followed) and awaits the method's result. A missing provider
  * fails with SERVICE_MISSING; a member that is not a function fails with RPC_REMOTE_ERROR.
- * Returns a function that stops serving all refs.
+ * Protocol errors of the endpoint go to `kernel.error`. Returns a function that stops serving all refs.
  */
 export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: readonly ServiceRef<object>[]): () => void {
+  const internals = kernelInternals(kernel);
+  const offProtocol = channelOf(endpoint).onProtocolError(kernel, (error) => {
+    internals.report(error);
+  });
   const removers = refs.map((ref) =>
     endpoint.handle(ref.id, async (method, args) => {
       const service = kernel.services.use(ref) as Record<string, unknown>;
@@ -22,6 +28,7 @@ export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: read
   );
   return () => {
     for (const remove of removers) remove();
+    offProtocol();
   };
 }
 
@@ -57,7 +64,7 @@ export interface RemoteServicesOptions {
  * A plugin that provides each ref as an async proxy to services exposed on the other side of
  * `endpoint` (see `exposeServices`): every method returns a Promise that performs
  * `endpoint.call(ref.id, method, args)`. As an ordinary provider it takes part in dependsOn
- * checks, winners and disposal. Replaces the brief's `connectServices`, since a kernel only
+ * checks, winners and disposal; protocol errors of the endpoint go to `kernel.error`. Replaces the brief's `connectServices`, since a kernel only
  * accepts providers from plugins.
  */
 export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefinition {
@@ -67,6 +74,10 @@ export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefi
     version,
     setup(ctx) {
       for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
+      const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
+        ctx.emit("kernel.error", error);
+      });
+      ctx.onDispose(off);
     },
   };
 }

@@ -66,16 +66,25 @@ interface RemoteTap {
 
 /**
  * Forwards one hook invocation to the tapping side and resolves with its tap-result. If the
- * tap-result does not arrive within `timeoutMs` (or the endpoint closes), reports HOOK_TIMEOUT
+ * tap-result does not arrive within `timeoutMs` (or the endpoint is or becomes closed), reports HOOK_TIMEOUT
  * (RPC_DISCONNECTED) naming the owner and continues with `next(ctx)`, or with the downstream
  * result if the remote side already called next.
  */
 function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Promise<unknown> {
   const { channel, internals, owner } = tap;
+  const lost = (): LoomError =>
+    new LoomError("RPC_DISCONNECTED", `Remote tap of "${owner}" on hook "${tap.hookId}" was disconnected`, { pluginIds: [owner] });
+  if (channel.closed) {
+    // a run that snapshotted the tap before the endpoint closed: skip it without sending
+    internals.report(lost());
+    return Promise.resolve().then(() => next(ctx));
+  }
   const invocations = invocationsOf(channel);
   const id = channel.nextId();
   return new Promise<unknown>((resolve, reject) => {
     let downstream: Promise<unknown> | undefined;
+    // assigned after subscribing, so an immediate close callback cannot hit an uninitialized binding
+    const closeSub = { off: (): void => undefined };
     const callNext = (c: unknown): Promise<unknown> => {
       const result = Promise.resolve().then(() => next(c));
       downstream ??= result;
@@ -84,7 +93,7 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
     const finish = (): void => {
       stopTimer(timer);
       invocations.delete(id);
-      offClose();
+      closeSub.off();
     };
     const abandon = (error: LoomError): void => {
       finish();
@@ -95,9 +104,8 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
       const message = `Remote tap of "${owner}" on hook "${tap.hookId}" did not finish within ${String(tap.timeoutMs)} ms`;
       abandon(new LoomError("HOOK_TIMEOUT", message, { pluginIds: [owner] }));
     }, tap.timeoutMs);
-    const offClose = channel.onClose(() => {
-      const message = `Remote tap of "${owner}" on hook "${tap.hookId}" was disconnected`;
-      abandon(new LoomError("RPC_DISCONNECTED", message, { pluginIds: [owner] }));
+    closeSub.off = channel.onClose(() => {
+      abandon(lost());
     });
     invocations.set(id, {
       next: (c) => {
@@ -127,7 +135,8 @@ function tapOptions(req: TapRequest): TapOptions<unknown> {
 }
 
 /**
- * Lets the peer of `endpoint` tap `hooks` with `tapRemote`. Each remote tap becomes a local tap
+ * Lets the peer of `endpoint` tap `hooks` with `tapRemote`. Protocol errors of the endpoint are
+ * reported to `kernel.error`. Each remote tap becomes a local tap
  * owned by `remote:<plugin id>` that forwards the context to the peer. Remote taps are removed
  * on untap, when the endpoint closes, and by the returned function (which also stops serving).
  * Only async hooks can be exposed; a sync hook throws TAP_FAILED.
@@ -158,9 +167,13 @@ export function exposeHooks(kernel: Kernel, endpoint: RpcEndpoint, hooks: readon
     }),
   );
   const offClose = channel.onClose(untapAll);
+  const offProtocol = channel.onProtocolError(kernel, (error) => {
+    internals.report(error);
+  });
   return () => {
     for (const remove of removers) remove();
     offClose();
+    offProtocol();
     untapAll();
   };
 }
