@@ -39,6 +39,10 @@
     "plugins/layout-bare": {
       "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/chat": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
     }
   },
   "ignore": ["tools/lint-fixtures/**"]
