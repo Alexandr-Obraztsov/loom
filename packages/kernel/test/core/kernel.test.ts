@@ -239,4 +239,13 @@ describe("kernel services", () => {
       ["TAP_FAILED", "err"],
     ]);
   });
+
+  it("kernel-owned registrations come first and unknown owners last", () => {
+    const rt = new KernelRuntime({}, () => undefined);
+    const heard: string[] = [];
+    rt.events.on("e", "stranger", () => heard.push("stranger"));
+    rt.events.on("e", KERNEL_ID, () => heard.push("kernel"));
+    rt.events.emit("e", 0);
+    expect(heard).toEqual(["kernel", "stranger"]);
+  });
 });

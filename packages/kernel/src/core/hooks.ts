@@ -14,6 +14,14 @@ export interface HookRegistry {
   removeOwner(owner: string): void;
   /** Taps in execution order, for introspection. */
   taps(hook: HookRef<unknown, unknown>): readonly { readonly owner: string }[];
+  /** Recomputes every hook's order; call after the ranks returned by `rankOf` changed. */
+  reorder(): void;
+}
+
+export interface HookRegistryOptions {
+  onError(err: LoomError): void;
+  /** Breaks ties after priority (lower first) before registration order; absent, only registration order. */
+  readonly rankOf?: (owner: string) => number;
 }
 
 type TapFn = (ctx: unknown, next: Next<unknown, unknown>) => unknown;
@@ -204,7 +212,26 @@ function runChain(
 
 const EMPTY: readonly Tap[] = [];
 
-export function createHookRegistry(opts: { onError(err: LoomError): void }): HookRegistry {
+/** Recomputes the order of one hook; reports each newly dropped contradictory constraint once. */
+function refreshOrder(rt: Runtime, state: HookState, rankOf: ((owner: string) => number) | undefined): void {
+  const { order, dropped } = arrange(state.taps, rankOf);
+  for (const [key, [holder, other]] of dropped) {
+    if (state.dropped.has(key)) continue;
+    const owners = [...new Set([holder.owner, other.owner])];
+    report(
+      rt,
+      new LoomError(
+        "TAP_FAILED",
+        `Contradictory before/after constraints between "${holder.owner}" and "${other.owner}" on hook "${holder.hookId}"; the constraint is ignored`,
+        { pluginIds: owners },
+      ),
+    );
+  }
+  state.dropped = new Set(dropped.keys());
+  state.ordered = order;
+}
+
+export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
   const rt: Runtime = {
     onError: (err) => {
       opts.onError(err);
@@ -213,23 +240,10 @@ export function createHookRegistry(opts: { onError(err: LoomError): void }): Hoo
   };
   const hooks = new Map<string, HookState>();
   let seq = 0;
+  const rankOf = opts.rankOf;
 
   const refresh = (state: HookState): void => {
-    const { order, dropped } = arrange(state.taps);
-    for (const [key, [holder, other]] of dropped) {
-      if (state.dropped.has(key)) continue;
-      const owners = [...new Set([holder.owner, other.owner])];
-      report(
-        rt,
-        new LoomError(
-          "TAP_FAILED",
-          `Contradictory before/after constraints between "${holder.owner}" and "${other.owner}" on hook "${holder.hookId}"; the constraint is ignored`,
-          { pluginIds: owners },
-        ),
-      );
-    }
-    state.dropped = new Set(dropped.keys());
-    state.ordered = order;
+    refreshOrder(rt, state, rankOf);
   };
 
   const detach = (state: HookState, id: string, match: (t: Tap) => boolean): void => {
@@ -284,6 +298,9 @@ export function createHookRegistry(opts: { onError(err: LoomError): void }): Hoo
     },
     taps(hook: HookRef<unknown, unknown>): readonly { readonly owner: string }[] {
       return hooks.get(hook.id)?.ordered ?? EMPTY;
+    },
+    reorder(): void {
+      for (const state of hooks.values()) refresh(state);
     },
   };
 }

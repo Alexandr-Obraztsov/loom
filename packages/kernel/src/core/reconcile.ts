@@ -1,6 +1,8 @@
 import { deepEqual } from "./equal.js";
 import { LoomError } from "./errors.js";
 import { dependentsOf, resolveOrder } from "./graph.js";
+import { indexEntries } from "./tree-index.js";
+import type { TreeEntry, TreeIndexConfig } from "./tree-index.js";
 import type { PluginDefinition } from "./types.js";
 
 export interface ReconcileDiff {
@@ -27,6 +29,30 @@ export function presentOptional(def: PluginDefinition, active: ReadonlySet<strin
   return Object.keys(def.optionalDependsOn ?? {}).filter((id) => active.has(id)).sort();
 }
 
+/** Tree entries contributed by `defs`, in their order. */
+export function treeEntries(defs: readonly PluginDefinition[]): TreeEntry[] {
+  return defs.flatMap((p) => [
+    ...(p.extensions ?? []).map((ext) => ({ pluginId: p.id, ext, override: false })),
+    ...(p.overrides ?? []).map((ext) => ({ pluginId: p.id, ext, override: true })),
+  ]);
+}
+
+/**
+ * Rejects extension ids claimed by several plugins (two overrides, or two originals) that
+ * `tree.winners` does not settle. Disabled ids are ignored, as the tree ignores them.
+ */
+function checkExtensionConflicts(defs: readonly PluginDefinition[], tree: TreeIndexConfig): void {
+  const conflicts = [...indexEntries(treeEntries(defs), tree).placed.values()]
+    .filter((p) => p.conflict !== undefined)
+    .map((p) => ({ id: p.id, pluginIds: p.conflict as readonly string[] }));
+  if (conflicts.length === 0) return;
+  const list = conflicts.map((c) => `"${c.id}" (${c.pluginIds.join(", ")})`).join("; ");
+  throw new LoomError("EXTENSION_CONFLICT", `Extension ids claimed by several plugins without a winner: ${list}`, {
+    pluginIds: [...new Set(conflicts.flatMap((c) => c.pluginIds))],
+    details: { conflicts },
+  });
+}
+
 /**
  * Pure planning step: resolves the desired order (throws MANIFEST_INVALID /
  * DEPENDENCY_* before anything runs) and computes what must be torn down and
@@ -34,13 +60,16 @@ export function presentOptional(def: PluginDefinition, active: ReadonlySet<strin
  * when its set of present optional dependencies differs, or when it is in
  * `force`. Changed and removed plugins and everything depending on them
  * (transitively, in the old or new graph) are affected; added ones affect nobody.
+ * Extension id conflicts without a winner in `tree` reject with EXTENSION_CONFLICT here.
  */
 export function planReconcile(
   current: readonly PluginDefinition[],
   desired: readonly PluginDefinition[],
   force: ReadonlySet<string> = new Set(),
+  tree: TreeIndexConfig = {},
 ): ReconcilePlan {
   const { order } = resolveOrder(desired);
+  checkExtensionConflicts(order, tree);
   const before = new Map(current.map((p) => [p.id, p]));
   const beforeIds = new Set(before.keys());
   const afterIds = new Set(order.map((p) => p.id));

@@ -6,11 +6,20 @@ export interface EventBus {
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- payload type is the caller's contract
   emit<P>(type: string, payload: P): void;
   removeOwner(owner: string): void;
+  /** Re-sorts every listener list; call after the ranks returned by `rankOf` changed. */
+  reorder(): void;
+}
+
+export interface EventBusOptions {
+  onError(err: LoomError): void;
+  /** Delivery order: owner rank (lower first), then subscription order; absent, subscription order only. */
+  readonly rankOf?: (owner: string) => number;
 }
 
 interface Subscription {
   readonly owner: string;
   readonly listener: (payload: unknown) => void;
+  readonly seq: number;
   removed: boolean;
 }
 
@@ -18,8 +27,12 @@ interface Subscription {
  * Synchronous, owner-scoped event bus. Per-type arrays are copy-on-write, so an
  * emit iterates a stable snapshot; `removed` guards entries dropped mid-emit.
  */
-export function createEventBus(opts: { onError(err: LoomError): void }): EventBus {
+export function createEventBus(opts: EventBusOptions): EventBus {
   const byType = new Map<string, readonly Subscription[]>();
+  const { rankOf } = opts;
+  let seq = 0;
+  const sorted = (list: readonly Subscription[]): readonly Subscription[] =>
+    rankOf ? list.slice().sort((a, b) => rankOf(a.owner) - rankOf(b.owner) || a.seq - b.seq) : list;
 
   function drop(type: string, keep: (s: Subscription) => boolean): void {
     const list = byType.get(type);
@@ -34,9 +47,10 @@ export function createEventBus(opts: { onError(err: LoomError): void }): EventBu
       const sub: Subscription = {
         owner,
         listener: listener as (payload: unknown) => void,
+        seq: seq++,
         removed: false,
       };
-      byType.set(type, [...(byType.get(type) ?? []), sub]);
+      byType.set(type, sorted([...(byType.get(type) ?? []), sub]));
       return () => {
         if (sub.removed) return;
         sub.removed = true;
@@ -72,6 +86,10 @@ export function createEventBus(opts: { onError(err: LoomError): void }): EventBu
           `${String(sinkFailures.length)} event error handlers failed`,
         );
       }
+    },
+
+    reorder(): void {
+      for (const [type, list] of [...byType]) byType.set(type, sorted(list));
     },
 
     removeOwner(owner: string): void {

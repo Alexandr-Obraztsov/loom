@@ -5,7 +5,7 @@ import type { EventBus } from "./events.js";
 import { createHookRegistry } from "./hooks.js";
 import type { HookRegistry } from "./hooks.js";
 import { validatePlugin } from "./manifest.js";
-import { applyReconcile, planReconcile, presentOptional } from "./reconcile.js";
+import { applyReconcile, planReconcile, presentOptional, treeEntries } from "./reconcile.js";
 import type { ReconcileDiff, ReconcilePlan, ReconcileRuntime } from "./reconcile.js";
 import { createServiceRegistry } from "./services.js";
 import type { ServiceRegistry } from "./services.js";
@@ -59,6 +59,10 @@ export class KernelRuntime {
   private readonly running = new Map<string, () => Promise<void>>();
   private readonly states = new Map<string, Record<string, unknown>>();
   private delivering = false;
+  /** Owner -> position in the resolved order; ties in hooks, events and decorators break by it. */
+  private ranks = new Map<string, number>();
+  private readonly rankOf = (owner: string): number =>
+    owner === KERNEL_ID ? -1 : (this.ranks.get(owner) ?? Number.MAX_SAFE_INTEGER);
 
   constructor(
     private readonly options: KernelOptions,
@@ -68,8 +72,8 @@ export class KernelRuntime {
     const onError = (e: unknown): void => {
       this.report(e);
     };
-    this.hooks = createHookRegistry({ onError });
-    this.events = createEventBus({ onError });
+    this.hooks = createHookRegistry({ onError, rankOf: this.rankOf });
+    this.events = createEventBus({ onError, rankOf: this.rankOf });
     this.services = this.registry(this.config);
   }
 
@@ -106,9 +110,10 @@ export class KernelRuntime {
   async pass(req: PassRequest): Promise<ReconcileDiff> {
     const desired = await this.trusted(req.desired.map((d) => validatePlugin(d)));
     const force = req.freshServices ? new Set(desired.map((d) => d.id)) : req.force;
-    const plan = planReconcile(this.active, desired, force);
+    const plan = planReconcile(this.active, desired, force, req.config);
     const previous = { services: this.services, config: this.config };
     this.pending = req.config;
+    this.rank(plan.order);
     if (req.freshServices) this.services = this.registry(req.config);
     try {
       await applyReconcile(plan, this.runtimeFor(plan, previous));
@@ -124,6 +129,7 @@ export class KernelRuntime {
     for (const id of plan.diff.removed) this.states.delete(id);
     this.active = plan.order;
     this.config = req.config;
+    this.rank(plan.order);
     this.tree = this.buildTree(req.freshServices ? undefined : this.tree);
     this.events.emit("plugins.changed", plan.diff);
     return plan.diff;
@@ -142,6 +148,14 @@ export class KernelRuntime {
     this.events.removeOwner(KERNEL_ID);
   }
 
+  /** Ranks owners by `order` and re-sorts every registry, so a reload never moves registrations. */
+  private rank(order: readonly PluginDefinition[]): void {
+    this.ranks = new Map(order.map((p, i) => [p.id, i]));
+    this.hooks.reorder();
+    this.events.reorder();
+    this.services.reorder();
+  }
+
   private registry(config: KernelConfig): ServiceRegistry {
     const onError = (e: unknown): void => {
       this.report(e);
@@ -149,6 +163,7 @@ export class KernelRuntime {
     const registry = createServiceRegistry({
       kernelOwner: KERNEL_ID,
       onError,
+      rankOf: this.rankOf,
       ...(config.winners ? { winners: config.winners } : {}),
     });
     this.kernelServices(registry);
@@ -188,6 +203,7 @@ export class KernelRuntime {
       },
       restore: () => {
         this.services = previous.services;
+        this.rank(plan.current);
         this.pending = previous.config;
         const known = new Set(plan.current.map((p) => p.id));
         for (const id of [...this.states.keys()]) if (!known.has(id)) this.states.delete(id);
@@ -233,10 +249,7 @@ export class KernelRuntime {
   }
 
   private buildTree(previous: TreeResult | undefined): TreeResult {
-    const entries = this.active.flatMap((p) => [
-      ...(p.extensions ?? []).map((ext) => ({ pluginId: p.id, ext, override: false })),
-      ...(p.overrides ?? []).map((ext) => ({ pluginId: p.id, ext, override: true })),
-    ]);
+    const entries = treeEntries(this.active);
     const use = <T>(ref: ServiceRef<T>): T => this.use(ref as ServiceRef<T & object>);
     const version = (refId: string): number => this.services.version({ id: refId, kind: "service" });
     return buildTree(entries, this.config, use, previous, version);

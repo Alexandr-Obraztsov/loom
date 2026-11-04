@@ -8,6 +8,11 @@ import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
  * The kernel's own service. Every call is queued behind running reconciles,
  * so a plugin must not await it from its own `setup` or `onDispose` (that
  * would wait for the reconcile that is running the plugin: a deadlock).
+ *
+ * Plugins can change one catalogue entry at a time but cannot trigger a full
+ * `reconcile()` (R12): replacing the whole plugin set belongs to the host that
+ * owns discovery and trust, and a plugin able to do it could unload every other
+ * plugin, or itself mid-setup, bypassing BeforeInstallHook for the rest.
  */
 export interface PluginsService {
   /** Runs BeforeInstallHook, then adds (or replaces) and enables the plugin. */

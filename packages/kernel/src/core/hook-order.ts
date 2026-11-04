@@ -13,11 +13,15 @@ export interface Arranged<T extends Orderable> {
   readonly dropped: Map<string, readonly [T, T]>;
 }
 
-function compareRank(a: Orderable, b: Orderable): number {
-  return b.priority - a.priority || a.seq - b.seq;
+/** Owner rank used to break ties; absent, every owner ranks the same and registration order decides. */
+export type RankOf = (owner: string) => number;
+const NO_RANK: RankOf = () => 0;
+
+function compareBy(rankOf: RankOf): (a: Orderable, b: Orderable) => number {
+  return (a, b) => b.priority - a.priority || rankOf(a.owner) - rankOf(b.owner) || a.seq - b.seq;
 }
 
-/** Min-heap of rank indexes (rank 0 = highest priority, earliest registration). */
+/** Min-heap of rank indexes (rank 0 = highest priority, lowest owner rank, earliest registration). */
 class RankHeap {
   private readonly items: number[] = [];
   push(v: number): void {
@@ -51,13 +55,16 @@ class RankHeap {
 }
 
 /**
- * Builds the order from scratch: constraint edges are added greedily in registration order of the
- * declaring tap (its `before` entries, then `after`); an edge that would close a cycle is dropped.
- * Kahn's algorithm with a priority queue then orders the DAG (priority desc, then registration).
+ * Builds the order from scratch: constraint edges are added greedily in (owner rank, registration)
+ * order of the declaring tap (its `before` entries, then `after`); an edge that would close a cycle
+ * is dropped. Kahn's algorithm with a priority queue then orders the DAG (priority desc, then owner
+ * rank, then registration).
  */
-export function arrange<T extends Orderable>(taps: readonly T[]): Arranged<T> {
-  const ranked = taps.slice().sort(compareRank);
-  const rankOf = new Map<T, number>(ranked.map((t, i) => [t, i]));
+export function arrange<T extends Orderable>(taps: readonly T[], rankOf: RankOf = NO_RANK): Arranged<T> {
+  const ranked = taps.slice().sort(compareBy(rankOf));
+  const declaring =
+    rankOf === NO_RANK ? taps : taps.slice().sort((a, b) => rankOf(a.owner) - rankOf(b.owner) || a.seq - b.seq);
+  const indexOf = new Map<T, number>(ranked.map((t, i) => [t, i]));
   const byOwner = new Map<string, T[]>();
   for (const t of taps) byOwner.set(t.owner, [...(byOwner.get(t.owner) ?? []), t]);
   const succ: number[][] = ranked.map(() => []);
@@ -79,14 +86,14 @@ export function arrange<T extends Orderable>(taps: readonly T[]): Arranged<T> {
   const consider = (holder: T, other: T, from: T, to: T): void => {
     const key = `${String(from.seq)}>${String(to.seq)}`;
     if (from === to || seen.has(key) || dropped.has(key)) return;
-    const [f, t] = [rankOf.get(from) as number, rankOf.get(to) as number];
+    const [f, t] = [indexOf.get(from) as number, indexOf.get(to) as number];
     if (reaches(t, f)) dropped.set(key, [holder, other]);
     else {
       seen.add(key);
       succ[f]?.push(t);
     }
   };
-  for (const t of taps) {
+  for (const t of declaring) {
     for (const o of t.before) for (const u of byOwner.get(o) ?? []) consider(t, u, t, u);
     for (const o of t.after) for (const u of byOwner.get(o) ?? []) consider(t, u, u, t);
   }

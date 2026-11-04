@@ -1,4 +1,6 @@
 import { LoomError } from "./errors.js";
+import { callListeners, conflictError, deliver, rankSort, removeFrom, reorderAll, stripOwner } from "./service-helpers.js";
+import type { Decorator, Impl, RefState, Resolved } from "./service-helpers.js";
 import type { ServiceRef } from "./types.js";
 
 export interface ServiceRegistry {
@@ -13,6 +15,8 @@ export interface ServiceRegistry {
   version(ref: ServiceRef<unknown>): number;
   removeOwner(owner: string): void;
   onChange(listener: (refId: string) => void): () => void;
+  /** Re-sorts registrations by `rankOf`; refs whose order changed get a new version. */
+  reorder(): void;
 }
 
 export interface ServiceRegistryOptions {
@@ -20,40 +24,19 @@ export interface ServiceRegistryOptions {
   readonly kernelOwner: string;
   /** Receives listener errors (wrapped as TAP_FAILED). Without it they are thrown after all listeners ran. */
   readonly onError?: (error: unknown) => void;
+  /**
+   * Orders registrations of one ref (decorator application, fallback provider) by owner rank
+   * (lower first), then registration order; absent, registration order only.
+   */
+  readonly rankOf?: (owner: string) => number;
 }
 
-interface Impl {
-  readonly owner: string;
-  readonly impl: object;
-}
-interface Decorator {
-  readonly owner: string;
-  readonly fn: (prev: object) => object;
-}
-interface Resolved {
-  readonly version: number;
-  readonly owner: string | undefined;
-  /** Active registration's impl before decorators; undefined when there is no provider. */
-  readonly base: object | undefined;
-  decorated?: object;
-  failure?: LoomError;
-  readonly wrappers: Map<PropertyKey, unknown>;
-}
 interface ProxyAccess {
   readonly consumer: string;
   readonly kernelOwner: string;
   allowed: ReadonlySet<string>;
   checkedVersion: number;
 }
-interface RefState {
-  readonly id: string;
-  version: number;
-  readonly provides: Impl[];
-  readonly overrides: Impl[];
-  readonly decorators: Decorator[];
-  resolved: Resolved | undefined;
-}
-
 type Winners = Readonly<Record<string, string>>;
 
 function stateOf(states: Map<string, RefState>, id: string): RefState {
@@ -174,48 +157,6 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
   );
 }
 
-function removeFrom<E>(list: E[], entry: E): boolean {
-  const i = list.indexOf(entry);
-  if (i < 0) return false;
-  list.splice(i, 1);
-  return true;
-}
-
-/** Removes every registration of `owner`; returns ids of refs that changed. */
-function stripOwner(states: Map<string, RefState>, owner: string): string[] {
-  const changed: string[] = [];
-  for (const s of states.values()) {
-    const lists = [s.provides, s.overrides, s.decorators] as { owner: string }[][];
-    const before = lists.reduce((n, l) => n + l.length, 0);
-    for (const list of lists) {
-      for (let i = list.length - 1; i >= 0; i--) if (list[i]?.owner === owner) list.splice(i, 1);
-    }
-    if (lists.reduce((n, l) => n + l.length, 0) !== before) changed.push(s.id);
-  }
-  return changed;
-}
-
-/** Hands each error to `sink`; returns the errors the sink itself threw. */
-function deliver(errors: readonly unknown[], sink: (e: unknown) => void): unknown[] {
-  const failed: unknown[] = [];
-  for (const e of errors) {
-    try {
-      sink(e);
-    } catch (sinkError) {
-      failed.push(sinkError);
-    }
-  }
-  return failed;
-}
-
-function conflictError(refId: string, existing: string, incoming: string, what: string): LoomError {
-  return new LoomError(
-    "SERVICE_CONFLICT",
-    `service "${refId}" already has a ${what} from "${existing}"; "${incoming}" cannot ${what} it too`,
-    { pluginIds: [existing, incoming], details: { ref: refId } },
-  );
-}
-
 type CachedProxy = { proxy: object; access: ProxyAccess };
 type ProxyCache = Map<string, Map<string, CachedProxy>>;
 
@@ -242,7 +183,8 @@ function proxyFor(
 }
 
 export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegistry {
-  const { winners = {}, kernelOwner, onError } = opts;
+  const { winners = {}, kernelOwner, onError, rankOf } = opts;
+  let seq = 0;
   const states = new Map<string, RefState>();
   const proxies: ProxyCache = new Map();
   const listeners = new Set<(refId: string) => void>();
@@ -254,18 +196,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
       s.version += 1;
       s.resolved = undefined;
     }
-    const errors: unknown[] = [];
-    for (const id of ids) {
-      for (const l of [...listeners]) {
-        try {
-          l(id);
-        } catch (cause) {
-          errors.push(
-            new LoomError("TAP_FAILED", `service onChange listener failed for "${id}"`, { cause }),
-          );
-        }
-      }
-    }
+    const errors = callListeners(ids, listeners);
     const failures = onError ? deliver(errors, onError) : errors;
     if (failures.length === 1) throw failures[0];
     if (failures.length > 1) {
@@ -288,6 +219,7 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
       throw conflictError(ref.id, existing.owner, entry.owner, what);
     }
     list(s).push(entry);
+    rankSort(list(s), rankOf);
     notify([ref.id]);
     return () => {
       if (removeFrom(list(s), entry)) notify([ref.id]);
@@ -295,12 +227,13 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
   }
 
   return {
-    provide: (ref, impl, owner) => register(ref, (s) => s.provides, { owner, impl }, "provider"),
-    override: (ref, impl, owner) => register(ref, (s) => s.overrides, { owner, impl }, "override"),
+    provide: (ref, impl, owner) => register(ref, (s) => s.provides, { owner, impl, seq: seq++ }, "provider"),
+    override: (ref, impl, owner) => register(ref, (s) => s.overrides, { owner, impl, seq: seq++ }, "override"),
     decorate(ref, fn, owner) {
       const s = get(ref.id);
-      const d: Decorator = { owner, fn: fn as unknown as (prev: object) => object };
+      const d: Decorator = { owner, fn: fn as unknown as (prev: object) => object, seq: seq++ };
       s.decorators.push(d);
+      rankSort(s.decorators, rankOf);
       notify([ref.id]);
       return () => {
         if (removeFrom(s.decorators, d)) notify([ref.id]);
@@ -315,6 +248,10 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
     removeOwner(owner) {
       for (const byConsumer of proxies.values()) byConsumer.delete(owner);
       const changed = stripOwner(states, owner);
+      if (changed.length > 0) notify(changed);
+    },
+    reorder() {
+      const changed = reorderAll(states.values(), rankOf);
       if (changed.length > 0) notify(changed);
     },
     onChange(listener) {
