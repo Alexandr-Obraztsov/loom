@@ -19,6 +19,10 @@
     "packages/react": {
       "entry": ["src/index.ts", "test/**/*.test.{ts,tsx}"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/acp": {
+      "entry": ["src/main.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
     }
   },
   "ignore": ["tools/lint-fixtures/**"]
