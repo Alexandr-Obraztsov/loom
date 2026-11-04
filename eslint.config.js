@@ -1,7 +1,7 @@
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
-import { boundariesConfig, exportRules, platformNeutralConfigs } from "./eslint.rules.js";
+import { boundariesConfig, exportRules, platformNeutralConfigs, workspaceConfigs } from "./eslint.rules.js";
 
 export default defineConfig(
   {
@@ -42,5 +42,6 @@ export default defineConfig(
     languageOptions: { sourceType: "commonjs", globals: { module: "writable" } },
   },
   boundariesConfig,
+  ...workspaceConfigs,
   ...platformNeutralConfigs,
 );

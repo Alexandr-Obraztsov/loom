@@ -6,11 +6,14 @@ import process from "node:process";
 const root = path.resolve(import.meta.dirname, "lint-fixtures");
 const k = "packages/kernel/src";
 const s = "packages/sdk/src";
+const r = "packages/react/src";
+const p = "plugins";
+const a = "apps/desk/src";
 const BOUNDARIES = "boundaries/dependencies";
 const IMPORTS = "no-restricted-imports";
 const EXPORTS = "no-restricted-exports";
 
-/** @type {Record<string, string | null>} fixture file -> the single expected rule (null = clean) */
+/** @type {Record<string, string | string[] | null>} fixture file -> the expected rule(s), sorted alphabetically when several (null = clean) */
 const expected = {
   [`${k}/index.ts`]: null,
   [`${k}/util.ts`]: null,
@@ -28,12 +31,27 @@ const expected = {
   [`${s}/default-from.ts`]: EXPORTS,
   [`${s}/default-named-from.ts`]: EXPORTS,
   [`${s}/default-namespace-from.ts`]: EXPORTS,
+  [`${s}/index.ts`]: null,
+  [`${r}/index.ts`]: null,
+  // packages never import plugins (by path or by package name)
+  [`${r}/imports-plugin.ts`]: BOUNDARIES,
+  [`${r}/imports-plugin-name.ts`]: IMPORTS,
+  [`${p}/foo/src/api.ts`]: null,
+  [`${p}/foo/src/internal.ts`]: null,
+  // renderer plugin files must not import Node built-ins; main may
+  [`${p}/foo/src/renderer.ts`]: IMPORTS,
+  [`${p}/foo/src/main.ts`]: null,
+  [`${p}/bar/src/renderer.ts`]: null,
+  [`${p}/bar/src/deep.ts`]: BOUNDARIES,
+  [`${p}/bar/src/kernel.ts`]: [BOUNDARIES, IMPORTS],
+  [`${a}/main.ts`]: null,
+  [`${a}/deep.ts`]: BOUNDARIES,
 };
 
 // eslint-plugin-boundaries resolves element patterns against process.cwd().
 process.chdir(root);
 const eslint = new ESLint({ cwd: root });
-const results = await eslint.lintFiles(["packages"]);
+const results = await eslint.lintFiles(["packages", "plugins", "apps"]);
 const failures = [];
 const seen = new Set();
 for (const result of results) {
@@ -44,8 +62,8 @@ for (const result of results) {
     failures.push(`${rel}: fixture has no expectation`);
     continue;
   }
-  const got = [...new Set(result.messages.map((m) => m.ruleId ?? `parse: ${m.message}`))];
-  const wantList = want === null ? [] : [want];
+  const got = [...new Set(result.messages.map((m) => m.ruleId ?? `parse: ${m.message}`))].sort();
+  const wantList = want === null ? [] : [want].flat().sort();
   if (got.join() !== wantList.join()) {
     failures.push(`${rel}: expected [${wantList.join()}], got [${got.join()}]`);
   }

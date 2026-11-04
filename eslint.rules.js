@@ -34,15 +34,29 @@ export const exportRules = {
 const KERNEL_ELEMENTS = ["kernel-core", "kernel-rpc", "kernel-node", "kernel-other"];
 const ENTRY = { to: { file: { categories: "kernel-entry" } } };
 const allowTo = (...types) => ({ to: { element: { types } } });
+const PACKAGE_ENTRY = { to: { file: { categories: "package-entry" } } };
+const PLUGIN_ENTRY = { to: { file: { categories: "plugin-entry" } } };
+const OWN_PLUGIN = {
+  to: { element: { type: "plugin", captured: { plugin: "{{from.captured.plugin}}" } } },
+};
+
+const SOURCE_FILES = ["packages/**/*.{ts,tsx}", "plugins/**/*.{ts,tsx}", "apps/**/*.{ts,tsx}"];
 
 export const boundariesConfig = {
-  files: ["packages/**/*.ts"],
+  files: SOURCE_FILES,
   plugins: { boundaries },
   settings: {
     "import/resolver": {
-      typescript: { project: ["packages/*/tsconfig.json"], noWarnOnMultipleProjects: true },
+      typescript: {
+        project: ["packages/*/tsconfig.json", "plugins/*/tsconfig.json", "apps/*/tsconfig.json"],
+        noWarnOnMultipleProjects: true,
+      },
     },
-    "boundaries/files": [{ pattern: "packages/kernel/src/index.ts", category: "kernel-entry" }],
+    "boundaries/files": [
+      { pattern: "packages/kernel/src/index.ts", category: "kernel-entry" },
+      { pattern: "packages/{sdk,host,react}/src/index.ts", category: "package-entry" },
+      { pattern: "plugins/*/src/{api,index}.ts", category: "plugin-entry" },
+    ],
     "boundaries/elements": [
       { type: "kernel-core", pattern: "packages/kernel/src/core/**", partialMatch: false },
       { type: "kernel-rpc", pattern: "packages/kernel/src/rpc/**", partialMatch: false },
@@ -54,6 +68,16 @@ export const boundariesConfig = {
       { type: "kernel-bench", pattern: "packages/kernel/bench/**", partialMatch: false },
       { type: "sdk-test", pattern: "packages/sdk/test/**", partialMatch: false },
       { type: "host-test", pattern: "packages/host/test/**", partialMatch: false },
+      { type: "react-pkg", pattern: "packages/react/src/**", partialMatch: false },
+      { type: "react-test", pattern: "packages/react/test/**", partialMatch: false },
+      { type: "plugin", pattern: "plugins/*/src/**", partialMatch: false, capture: ["plugin"] },
+      {
+        type: "plugin-test",
+        pattern: "plugins/*/test/**",
+        partialMatch: false,
+        capture: ["plugin"],
+      },
+      { type: "app", pattern: "apps/*/src/**", partialMatch: false },
     ],
   },
   rules: {
@@ -90,6 +114,25 @@ export const boundariesConfig = {
             from: { element: { type: "host-test" } },
             allow: [allowTo("host", "host-test"), ENTRY],
           },
+          { from: { element: { type: "react-pkg" } }, allow: [allowTo("react-pkg"), ENTRY] },
+          {
+            from: { element: { type: "react-test" } },
+            allow: [allowTo("react-pkg", "react-test"), ENTRY],
+          },
+          // a plugin sees its own files and the public entries of packages and other plugins
+          {
+            from: { element: { type: "plugin" } },
+            allow: [OWN_PLUGIN, PACKAGE_ENTRY, PLUGIN_ENTRY],
+          },
+          {
+            from: { element: { type: "plugin-test" } },
+            allow: [OWN_PLUGIN, allowTo("plugin-test"), PACKAGE_ENTRY, PLUGIN_ENTRY],
+          },
+          // an app may use anything except the internals of kernel
+          {
+            from: { element: { type: "app" } },
+            allow: [allowTo("app"), ENTRY, PACKAGE_ENTRY, PLUGIN_ENTRY],
+          },
         ],
       },
     ],
@@ -124,6 +167,55 @@ export const platformNeutralConfigs = [
           ],
         },
       ],
+    },
+  },
+];
+
+const PLUGIN_AND_APP_NAMES = ["@loom/plugin-*", "@loom/desktop"];
+const PLUGIN_SOURCE = ["plugins/*/src/**/*.{ts,tsx}"];
+const PLUGIN_MAIN = ["plugins/*/src/main*.{ts,tsx}", "plugins/*/src/main/**/*.{ts,tsx}"];
+
+const KERNEL_PATH = {
+  name: "@loom/kernel",
+  message: "Plugins import @loom/sdk, not @loom/kernel.",
+};
+const PLUGIN_PATTERNS = [
+  { group: ["@loom/kernel/*"], message: "Plugins import @loom/sdk, not @loom/kernel." },
+  { group: ["@loom/*/src/*"], message: "Import a package by its public entry." },
+];
+
+export const workspaceConfigs = [
+  {
+    // packages are the platform: they never reach up into plugins, builds or apps
+    files: ["packages/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            { group: PLUGIN_AND_APP_NAMES, message: "Packages must not import plugins or apps." },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    // plugins go through the facade, never the kernel itself; Node built-ins only on the main side
+    files: PLUGIN_SOURCE,
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [...BUILTIN_PATHS, KERNEL_PATH],
+          patterns: [...BUILTIN_PATTERNS, ...PLUGIN_PATTERNS],
+        },
+      ],
+    },
+  },
+  {
+    files: PLUGIN_MAIN,
+    rules: {
+      "no-restricted-imports": ["error", { paths: [KERNEL_PATH], patterns: PLUGIN_PATTERNS }],
     },
   },
 ];
