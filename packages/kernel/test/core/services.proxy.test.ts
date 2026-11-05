@@ -71,15 +71,27 @@ describe("service proxy: class-valued members", () => {
     expect(() => new W("x")).toThrow(/no active provider|no longer a function/);
   });
 
-  it("plain methods keep their name and length too", () => {
+  it("plain methods are bare forwarders (no name/length mirroring) that still forward and refuse new", () => {
     const r = make();
     const add = (a: number, b: number): number => a + b;
     const sref: ServiceRef<{ add: typeof add }> = { id: "adder", kind: "service" };
     r.provide(sref, { add }, "A");
     const wrapped = r.use(sref, "C", any).add;
-    expect(wrapped.name).toBe("add");
-    expect(wrapped.length).toBe(2);
+    expect(wrapped(1, 2)).toBe(3);
     expect(() => new (wrapped as unknown as new () => unknown)()).toThrow(TypeError);
+  });
+
+  it("a function with a prototype keeps its name and length through the proxy", () => {
+    const r = make();
+    function mul(a: number, b: number): number {
+      return a * b;
+    }
+    const sref: ServiceRef<{ mul: typeof mul }> = { id: "muler", kind: "service" };
+    r.provide(sref, { mul }, "A");
+    const wrapped = r.use(sref, "C", any).mul;
+    expect(wrapped.name).toBe("mul");
+    expect(wrapped.length).toBe(2);
+    expect(wrapped(2, 3)).toBe(6);
   });
 });
 

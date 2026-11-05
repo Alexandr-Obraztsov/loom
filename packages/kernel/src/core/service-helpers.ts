@@ -69,20 +69,17 @@ const notCallable = (id: string, prop: PropertyKey): TypeError =>
 
 /**
  * A function-valued member of a service as seen through its proxy: it re-resolves on every call, so a held
- * reference keeps forwarding to the active implementation, and it mirrors `raw` (name, length, and for
- * constructors or functions with statics also `new`, `prototype` and the statics).
+ * reference keeps forwarding to the active implementation. A plain method (no `prototype`, no statics) gets a
+ * bare forwarding arrow; a class or other function with a prototype or statics is mirrored (name, length,
+ * `new`, `prototype` and the statics).
  */
 export function forwarder(raw: Fn, prop: PropertyKey, id: string, current: () => object): Fn {
   if (!Object.hasOwn(raw, "prototype") && !hasStatics(raw)) {
-    // a method literal named by a computed key gets `name` without a defineProperty (which is slow on functions)
-    const plain: Fn = {
-      [raw.name]: (...args: unknown[]): unknown => {
-        const cur = current();
-        return Reflect.apply(memberOf(cur, prop, id), cur, args);
-      },
-    }[raw.name] as Fn;
-    if (raw.length !== 0) Object.defineProperty(plain, "length", { value: raw.length, configurable: true });
-    return plain;
+    // a plain method: a bare forwarding arrow; mirroring name/length would cost two defineProperty calls per proxy member
+    return (...args: unknown[]): unknown => {
+      const cur = current();
+      return Reflect.apply(memberOf(cur, prop, id), cur, args);
+    };
   }
   const wrapper: Fn = new Proxy(raw, {
     apply(_t, _this, args: unknown[]) {
