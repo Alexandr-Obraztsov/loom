@@ -5,15 +5,15 @@
  * Used by `services.ts`; knows nothing about registration.
  */
 import { LoomError } from "./errors.js";
-import { allowedKey, forwarder, pickActive } from "./service-helpers.js";
+import { forwarder, pickActive, sameMembers } from "./service-helpers.js";
 import type { RefState, Resolved, Winners } from "./service-helpers.js";
 
 interface ProxyAccess {
   readonly consumer: string;
   readonly kernelOwner: string;
   allowed: ReadonlySet<string>;
-  /** Content key of `allowed`: a changed set is noticed even when the caller mutates one Set instance in place. */
-  allowedKey: string;
+  /** Members of `allowed` when it was last checked: a changed set is noticed even when the caller mutates one Set instance in place. */
+  members: readonly string[];
   checkedVersion: number;
 }
 type Members = Record<PropertyKey, unknown>;
@@ -74,11 +74,11 @@ function placeholder(id: string): object {
 
 function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object {
   const { consumer } = access;
-  const absent = placeholder(s.id);
+  let absent: object | undefined;
   const resolveChecked = (prop: PropertyKey | undefined): object => {
     const r = resolve(s, winners);
     if (r.base === undefined || r.owner === undefined) {
-      if (prop === "then" || prop === Symbol.toStringTag) return absent;
+      if (prop === "then" || prop === Symbol.toStringTag) return (absent ??= placeholder(s.id));
       throw new LoomError(
         "SERVICE_MISSING",
         `service "${s.id}" has no active provider (used by "${consumer}")`,
@@ -102,16 +102,17 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
   };
   /** This proxy's forwarding functions for one Resolved (so their identity changes with the implementation). */
   let wrappersOf: Resolved | undefined;
-  let wrappers = new Map<PropertyKey, unknown>();
+  let wrappers: Map<PropertyKey, unknown> | undefined;
   /** One-entry cache in front of `wrappers`: repeated calls of one method skip the map. */
   let lastProp: PropertyKey | undefined;
   let lastWrapper: unknown;
   const wrapper = (prop: PropertyKey, raw: (...args: unknown[]) => unknown): unknown => {
     if (wrappersOf !== s.resolved) {
       wrappersOf = s.resolved;
-      wrappers = new Map();
+      wrappers = undefined;
       lastProp = undefined;
     } else if (prop === lastProp) return lastWrapper;
+    wrappers ??= new Map();
     let w = wrappers.get(prop);
     if (!w) wrappers.set(prop, (w = forwarder(raw, prop, s.id, current)));
     lastProp = prop;
@@ -156,14 +157,13 @@ export function proxyFor(
   let byConsumer = proxies.get(s.id);
   if (!byConsumer) proxies.set(s.id, (byConsumer = new Map<string, CachedProxy>()));
   let cached = byConsumer.get(request.consumer);
-  const key = allowedKey(request.allowed);
   if (!cached) {
-    const access: ProxyAccess = { ...request, allowedKey: key, checkedVersion: -1 };
+    const access: ProxyAccess = { ...request, members: [...request.allowed], checkedVersion: -1 };
     cached = { proxy: buildProxy(s, winners, access), access };
     byConsumer.set(request.consumer, cached);
-  } else if (cached.access.allowedKey !== key) {
+  } else if (!sameMembers(cached.access.members, request.allowed)) {
     cached.access.allowed = request.allowed;
-    cached.access.allowedKey = key;
+    cached.access.members = [...request.allowed];
     cached.access.checkedVersion = -1;
   }
   const active = resolve(s, winners).owner;

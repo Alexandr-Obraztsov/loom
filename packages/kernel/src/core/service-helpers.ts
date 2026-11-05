@@ -39,29 +39,29 @@ export function pickActive(s: RefState, winners: Winners): Impl | undefined {
   return (winner === undefined ? undefined : candidates.find((c) => c.owner === winner)) ?? candidates[0];
 }
 
-/** Everything the active implementation is made of, in application order: base registration, then decorators. */
-function activeParts(s: RefState, winners: Winners): readonly unknown[] {
-  return [pickActive(s, winners), ...s.decorators];
-}
+const NO_DECORATORS: readonly Decorator[] = [];
 
 /**
  * Runs `mutate` and returns the ids of the refs (among `refs`) whose active implementation differs afterwards:
- * a registration that does not become active, or a removal of one that was not, changes nothing observable.
+ * the base registration and the decorators, in order, are what an implementation is made of. A registration
+ * that does not become active, or a removal of one that was not, changes nothing observable.
  */
 export function changedRefs(refs: Iterable<RefState>, winners: Winners, mutate: () => void): string[] {
-  const before = [...refs].map((s) => [s, activeParts(s, winners)] as const);
+  const states = [...refs];
+  const bases = states.map((s) => pickActive(s, winners));
+  const decorators = states.map((s) => (s.decorators.length === 0 ? NO_DECORATORS : s.decorators.slice()));
   mutate();
   const changed: string[] = [];
-  for (const [s, parts] of before) {
-    const now = activeParts(s, winners);
-    if (now.length !== parts.length || now.some((p, i) => p !== parts[i])) changed.push(s.id);
-  }
+  states.forEach((s, i) => {
+    const before = decorators[i] as readonly Decorator[];
+    if (pickActive(s, winners) !== bases[i] || s.decorators.length !== before.length || s.decorators.some((d, k) => d !== before[k])) changed.push(s.id);
+  });
   return changed;
 }
 
-/** Order-independent identity of a set of owner ids: two sets with equal contents have equal keys. */
-export function allowedKey(allowed: ReadonlySet<string>): string {
-  return JSON.stringify([...allowed].sort());
+/** True when `allowed` still has exactly the members of `snapshot` (no sorting or string building: this runs on every `use`). */
+export function sameMembers(snapshot: readonly string[], allowed: ReadonlySet<string>): boolean {
+  return snapshot.length === allowed.size && snapshot.every((id) => allowed.has(id));
 }
 
 const notCallable = (id: string, prop: PropertyKey): TypeError =>
@@ -73,31 +73,40 @@ const notCallable = (id: string, prop: PropertyKey): TypeError =>
  * constructors or functions with statics also `new`, `prototype` and the statics).
  */
 export function forwarder(raw: Fn, prop: PropertyKey, id: string, current: () => object): Fn {
-  const member = (cur: object): Fn => {
-    const fn = (cur as Members)[prop];
-    if (typeof fn !== "function") throw notCallable(id, prop);
-    return fn as Fn;
-  };
-  if (!Object.hasOwn(raw, "prototype") && Object.keys(raw).length === 0) {
-    const plain = (...args: unknown[]): unknown => {
-      const cur = current();
-      return Reflect.apply(member(cur), cur, args);
-    };
-    Object.defineProperty(plain, "name", { value: raw.name, configurable: true });
-    Object.defineProperty(plain, "length", { value: raw.length, configurable: true });
+  if (!Object.hasOwn(raw, "prototype") && !hasStatics(raw)) {
+    // a method literal named by a computed key gets `name` without a defineProperty (which is slow on functions)
+    const plain: Fn = {
+      [raw.name]: (...args: unknown[]): unknown => {
+        const cur = current();
+        return Reflect.apply(memberOf(cur, prop, id), cur, args);
+      },
+    }[raw.name] as Fn;
+    if (raw.length !== 0) Object.defineProperty(plain, "length", { value: raw.length, configurable: true });
     return plain;
   }
   const wrapper: Fn = new Proxy(raw, {
     apply(_t, _this, args: unknown[]) {
       const cur = current();
-      return Reflect.apply(member(cur), cur, args);
+      return Reflect.apply(memberOf(cur, prop, id), cur, args);
     },
     construct(_t, args: unknown[], newTarget) {
-      const fn = member(current());
+      const fn = memberOf(current(), prop, id);
       return Reflect.construct(fn, args, newTarget === wrapper ? fn : newTarget) as object;
     },
   });
   return wrapper;
+}
+
+function memberOf(cur: object, prop: PropertyKey, id: string): Fn {
+  const fn = (cur as Members)[prop];
+  if (typeof fn !== "function") throw notCallable(id, prop);
+  return fn as Fn;
+}
+
+/** True when the function has own enumerable properties (statics), without allocating the key list. */
+function hasStatics(fn: Fn): boolean {
+  for (const _key in fn) return true;
+  return false;
 }
 
 /** Sorts in place by (owner rank, registration seq). */

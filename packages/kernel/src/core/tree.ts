@@ -157,46 +157,56 @@ function sameFailure(a: ResolvedNode, b: ResolvedNode): boolean {
   return a.errors.length === 1 && b.errors.length === 1 && x?.code === "EXTENSION_FACTORY_FAILED" && y?.code === "EXTENSION_FACTORY_FAILED" && sameCause(x.cause, y.cause);
 }
 
-/** One input slot of a node waiting to be resolved: the child `c` hangs off input `name`. */
-interface Slot {
-  readonly name: string;
-  readonly schema: ZodType | undefined;
-  readonly c: Placed;
+type Specs = readonly (readonly [string, InputSpec])[];
+const NO_SPECS: Specs = [];
+/** `Object.entries(inputs)` per inputs object, so walking a tree allocates no entry lists for unchanged definitions. */
+const specsOf = new WeakMap<object, Specs>();
+
+function specsFor(inputs: Placed["inputs"]): Specs {
+  if (!inputs) return NO_SPECS;
+  let specs = specsOf.get(inputs);
+  if (!specs) specsOf.set(inputs, (specs = Object.entries(inputs)));
+  return specs;
 }
 
-/** A node whose children are being resolved; `next` is the next slot to descend into. */
+/** A node whose children are being resolved: input `i`, child `j` of it is next; `kids` collects the finished children in that order. */
 interface Frame {
   readonly p: Placed;
   readonly schema: ZodType | undefined;
-  readonly slots: readonly Slot[];
-  next: number;
+  readonly specs: Specs;
+  readonly attached: ReadonlyMap<string, readonly Placed[]> | undefined;
+  i: number;
+  j: number;
+  kids: ResolvedNode[];
+  /** How many of `kids` hang off each input (indexed like `specs`); allocated with the first kid. */
+  counts: number[];
 }
+
+const NO_KIDS: ResolvedNode[] = [];
 
 function frameOf(p: Placed, schema: ZodType | undefined, pass: Pass): Frame {
-  const attached = pass.index.children.get(p.id);
-  const slots: Slot[] = [];
-  for (const [name, spec] of Object.entries(p.inputs ?? {})) {
-    for (const c of attached?.get(name) ?? []) slots.push({ name, schema: spec.schema, c });
-  }
-  return { p, schema, slots, next: 0 };
+  return { p, schema, specs: specsFor(p.inputs), attached: pass.index.children.get(p.id), i: 0, j: 0, kids: NO_KIDS, counts: [] };
 }
 
-/** All children of `frame` are in `pass.nodes`: reuse the previous node if nothing it was built from changed, else build. */
-function finish(frame: Frame, pass: Pass): void {
-  const { p, schema } = frame;
+/** The finished children of `frame` grouped by input (every declared input present, maybe empty). */
+function groupByInput(frame: Frame): Map<string, ResolvedNode[]> {
   const byInput = new Map<string, ResolvedNode[]>();
-  for (const name of Object.keys(p.inputs ?? {})) byInput.set(name, []);
-  const kids: ResolvedNode[] = [];
-  for (const slot of frame.slots) {
-    const child = pass.nodes.get(slot.c.id) as ResolvedNode;
-    byInput.get(slot.name)?.push(child);
-    kids.push(child);
-  }
-  const parentPlugin = p.attach ? pass.index.placed.get(p.attach.id)?.pluginId : undefined;
+  let from = 0;
+  frame.specs.forEach(([name], i) => {
+    const to = from + (frame.counts[i] ?? 0);
+    byInput.set(name, frame.kids.slice(from, to));
+    from = to;
+  });
+  return byInput;
+}
+
+/** All children of `frame` are in `frame.kids`: reuse the previous node if nothing it was built from changed, else build. */
+function finish(frame: Frame, parentPlugin: string | undefined, pass: Pass): ResolvedNode {
+  const { p, schema, kids } = frame;
   const prev = pass.previous.get(p.id);
   const prevPrint = prev && fingerprints.get(prev);
   const same = prev !== undefined && prevPrint !== undefined && sameFingerprint(prevPrint, p, schema, parentPlugin, kids);
-  let node = same && !isStale(prev, pass) ? prev : build(p, byInput, schema, pass);
+  let node = same && !isStale(prev, pass) ? prev : build(p, groupByInput(frame), schema, pass);
   // a failing factory is retried every build, but failing the same way again is no change
   if (same && node !== prev && sameFailure(prev, node)) node = prev;
   if (node !== prev) {
@@ -206,22 +216,44 @@ function finish(frame: Frame, pass: Pass): void {
     });
   }
   pass.nodes.set(p.id, node);
+  return node;
+}
+
+/** The next unresolved child of `frame` with the schema of its input, or undefined when all are done. */
+function nextChild(frame: Frame): { child: Placed; schema: ZodType | undefined } | undefined {
+  while (frame.i < frame.specs.length) {
+    const [name, spec] = frame.specs[frame.i] as readonly [string, InputSpec];
+    const child = frame.attached?.get(name)?.[frame.j++];
+    if (child) return { child, schema: spec.schema };
+    frame.i++;
+    frame.j = 0;
+  }
+  return undefined;
 }
 
 /** Resolves the tree under `root` children first with an explicit stack, so depth is limited by memory, not by the call stack. */
 function resolveTree(root: Placed, pass: Pass): ResolvedNode {
   const stack = [frameOf(root, undefined, pass)];
+  let done: ResolvedNode | undefined;
   for (let top = stack.at(-1); top; top = stack.at(-1)) {
-    const slot = top.slots[top.next];
-    if (slot) {
-      top.next++;
-      stack.push(frameOf(slot.c, slot.schema, pass));
-    } else {
-      stack.pop();
-      finish(top, pass);
+    const next = nextChild(top);
+    if (next) {
+      stack.push(frameOf(next.child, next.schema, pass));
+      continue;
+    }
+    stack.pop();
+    done = finish(top, stack.at(-1)?.p.pluginId, pass);
+    const parent = stack.at(-1);
+    if (parent) {
+      if (parent.kids === NO_KIDS) {
+        parent.kids = [];
+        parent.counts = parent.specs.map(() => 0);
+      }
+      parent.kids.push(done);
+      parent.counts[parent.i] = (parent.counts[parent.i] ?? 0) + 1;
     }
   }
-  return pass.nodes.get(root.id) as ResolvedNode;
+  return done as ResolvedNode;
 }
 
 /** Errors in tree order: a node's own errors, then those of its inputs' children. Iterative for the same reason as `resolveTree`. */
