@@ -1,0 +1,9 @@
+{
+  "extends": "../../plugins/tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true
+  },
+  "include": ["src", "test", "vite", "e2e", "*.config.ts"]
+}

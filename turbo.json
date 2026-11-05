@@ -12,7 +12,8 @@
         "^build"
       ],
       "outputs": [
-        "dist/**"
+        "dist/**",
+        "out/**"
       ]
     },
     "bench": {

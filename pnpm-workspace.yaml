@@ -5,3 +5,5 @@ packages:
   - builds/*
 overrides:
   "@microsoft/api-extractor>typescript": 5.9.3
+onlyBuiltDependencies:
+  - electron

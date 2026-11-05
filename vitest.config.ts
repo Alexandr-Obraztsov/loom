@@ -51,6 +51,15 @@ export default defineConfig({
           benchmark: { include: [] },
         },
       },
+      // the desktop shell's pure pieces (the Electron wiring itself is covered by its e2e smoke test)
+      {
+        resolve: { alias: { ...alias, "@loom/plugin-acp": src("plugins/acp/src/api.ts") } },
+        test: {
+          name: "desktop",
+          include: ["apps/desktop/test/**/*.test.ts"],
+          benchmark: { include: [] },
+        },
+      },
       // plugins: `*.test.ts` run in node (main side), `*.test.tsx` in happy-dom (renderer side)
       {
         resolve: { alias },

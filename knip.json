@@ -33,7 +33,7 @@
       "project": ["src/**/*.ts", "test/**/*.ts"]
     },
     "plugins/app": {
-      "entry": ["src/renderer.tsx", "src/api.ts", "test/**/*.test.tsx"],
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
     },
     "plugins/layout-bare": {
@@ -47,6 +47,17 @@
     "plugins/composer": {
       "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
       "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "apps/desktop": {
+      "entry": ["e2e/*.test.ts", "e2e/stub-agent.mjs", "test/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "vite/**/*.ts", "e2e/**/*.{ts,mjs}"],
+      "ignoreDependencies": ["@loom/build-minimal", "@agentclientprotocol/claude-agent-acp"],
+      "ignoreBinaries": ["pgrep"]
+    },
+    "builds/minimal": {
+      "entry": [],
+      "project": [],
+      "ignoreDependencies": ["@loom/plugin-.*"]
     }
   },
   "ignore": ["tools/lint-fixtures/**"]

@@ -17,6 +17,8 @@ export default defineConfig(
       "node_modules/**",
       "tools/lint-fixtures/**",
       "plugins/*/test/fixtures/**",
+      "apps/*/out/**",
+      "apps/*/e2e/*.mjs",
     ],
   },
   js.configs.recommended,
@@ -36,7 +38,7 @@ export default defineConfig(
     },
   },
   {
-    files: ["*.config.{js,ts,cjs}"],
+    files: ["*.config.{js,ts,cjs}", "apps/*/*.config.ts"],
     rules: { "no-restricted-exports": "off" },
   },
   {
