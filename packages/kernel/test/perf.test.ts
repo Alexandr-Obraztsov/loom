@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
-import { createServiceRef } from "../src/core/definitions.js";
+import { createHook, createServiceRef } from "../src/core/definitions.js";
 import { createEventBus } from "../src/core/events.js";
 import { createHookRegistry } from "../src/core/hooks.js";
 import { createKernel } from "../src/core/kernel.js";
@@ -37,7 +37,10 @@ describe("performance guards: kernel", () => {
     const kernel = createKernel();
     await kernel.reconcile(plugins);
     const leaf = N - 1;
-    const variants = [perfPlugin(leaf, 3, "1.0.1"), perfPlugin(leaf, 3, "1.0.0")].map((def) => [...plugins.slice(0, leaf), def]);
+    const variants = [perfPlugin(leaf, 3, "1.0.1"), perfPlugin(leaf, 3, "1.0.0")].map((def) => [
+      ...plugins.slice(0, leaf),
+      def,
+    ]);
     let flip = 0;
     const reloaded: string[][] = [];
     const ms = await measure(20, 7, async () => {
@@ -62,7 +65,12 @@ describe("performance guards: kernel", () => {
   it("orphan reasons for a detached chain of 3000 extensions < 300 ms (linear walk)", () => {
     const entries = Array.from({ length: 3000 }, (_, k) => ({
       pluginId: `p-${String(k % 7)}`,
-      ext: { id: `e${String(k)}`, attachTo: { id: k === 0 ? "ghost" : `e${String(k - 1)}`, input: "slot" }, inputs: { slot: { multiple: true } }, factory: () => k },
+      ext: {
+        id: `e${String(k)}`,
+        attachTo: { id: k === 0 ? "ghost" : `e${String(k - 1)}`, input: "slot" },
+        inputs: { slot: { multiple: true } },
+        factory: () => k,
+      },
       override: false,
     }));
     const start = performance.now();
@@ -71,7 +79,6 @@ describe("performance guards: kernel", () => {
     expect(result.orphans).toHaveLength(3000);
     expect(ms, `orphan reasons took ${ms.toFixed(1)} ms`).toBeLessThan(300);
   });
-
 });
 
 describe("performance guards: tree, services, hooks", () => {
@@ -112,12 +119,16 @@ describe("performance guards: tree, services, hooks", () => {
     const directTime = median(() => time(impl));
     const proxyTime = median(() => time(proxy));
     expect(total).toBe(24e6);
-    expect(proxyTime, `proxy ${proxyTime.toFixed(2)} ms vs direct ${directTime.toFixed(2)} ms per 1e6 calls (ratio ${(proxyTime / directTime).toFixed(2)})`).toBeLessThan(8 * directTime);
+    expect(
+      proxyTime,
+      `proxy ${proxyTime.toFixed(2)} ms vs direct ${directTime.toFixed(2)} ms per 1e6 calls (ratio ${(proxyTime / directTime).toFixed(2)})`,
+    ).toBeLessThan(8 * directTime);
   });
 
   it("20-tap async run < 0.05 ms per run over 10 000 runs", async () => {
     const reg = createHookRegistry({ onError: () => undefined });
-    for (let t = 0; t < 20; t++) reg.tap(pluginHook, `o${String(t)}`, { priority: t % 3 }, (c, next) => next(c + 1));
+    for (let t = 0; t < 20; t++)
+      reg.tap(pluginHook, `o${String(t)}`, { priority: t % 3 }, (c, next) => next(c + 1));
     const fallback = (c: number): Promise<number> => Promise.resolve(c);
     expect(await reg.run(pluginHook, 0, fallback)).toBe(20);
     const ms = await measure(10_000, 5, () => reg.run(pluginHook, 0, fallback));
@@ -136,5 +147,51 @@ describe("event bus subscription", () => {
     };
     const ms = subscribe();
     expect(ms, `4000 subscriptions took ${ms.toFixed(2)} ms`).toBeLessThan(5);
+  });
+});
+
+const syncHook = createHook<number, number>("perf.sync", { mode: "sync" });
+
+describe("performance guards: hooks in setup", () => {
+  it("tap + run per plugin in setup <= 3x batch mode, floored at 4 ms, over 2000 taps of one hook", async ({
+    annotate,
+  }) => {
+    const taps = 2000;
+    const fill = (reg: ReturnType<typeof createHookRegistry>, i: number): void => {
+      reg.tap(syncHook, `o${String(i)}`, { priority: i % 5 }, (c) => c); // answers without next(): the run costs ordering, not the chain
+    };
+    const fallback = (c: number): number => c;
+    const batchMode = (): number => {
+      const reg = createHookRegistry({ onError: () => undefined });
+      const t0 = performance.now();
+      const end = reg.defer();
+      for (let i = 0; i < taps; i++) fill(reg, i);
+      end();
+      for (let i = 0; i < taps; i++) reg.run(syncHook, 0, fallback);
+      return performance.now() - t0;
+    };
+    const setupMode = (): number => {
+      const reg = createHookRegistry({ onError: () => undefined });
+      const t0 = performance.now();
+      for (let i = 0; i < taps; i++) {
+        fill(reg, i);
+        reg.run(syncHook, 0, fallback);
+      }
+      return performance.now() - t0;
+    };
+    const median = (f: () => number): number =>
+      [f(), f(), f(), f(), f()].sort((a, b) => a - b)[2] as number;
+    median(batchMode);
+    const batch = median(batchMode);
+    const inSetup = median(setupMode);
+    // batch mode takes ~1 ms, so its timer noise alone could break a strict 3x; the floor keeps a 12 ms ceiling
+    // (the quadratic re-sort this guards against costs ~800 ms)
+    await annotate(
+      `setup/batch ratio ${(inSetup / batch).toFixed(2)} (${inSetup.toFixed(1)} ms vs ${batch.toFixed(1)} ms)`,
+    );
+    expect(
+      inSetup,
+      `setup ${inSetup.toFixed(1)} ms vs batch ${batch.toFixed(1)} ms (ratio ${(inSetup / batch).toFixed(2)})`,
+    ).toBeLessThan(3 * Math.max(batch, 4));
   });
 });

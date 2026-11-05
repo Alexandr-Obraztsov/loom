@@ -32,6 +32,10 @@ function describe(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/**
+ * Hands `err` to the error sink and returns it. A throwing sink is swallowed on purpose (contract):
+ * it must neither mask the original failure nor stop the remaining reports and the running chain.
+ */
 export function report(rt: Runtime, err: LoomError): LoomError {
   rt.passthrough.add(err);
   try {
@@ -157,6 +161,8 @@ export function runChain(
           return raise(isAsync, wrap(rt, tap, e));
         }
       }
+      // One `next` closure per invoked tap per run is deliberate: `called` must be per call to detect
+      // a second next(); sharing one closure across runs would need a counter per run instead.
       let called = false;
       const next: Next<unknown, unknown> = (nextCtx) => {
         if (called) {
