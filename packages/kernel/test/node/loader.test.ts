@@ -86,6 +86,7 @@ describe("loadPluginsFromDirs", () => {
     const error = failureOf(result);
     expect(error.code).toBe("MANIFEST_INVALID");
     expect(error.details).toMatchObject({ phase: "validate", packageId: "a", definitionId: "b" });
+    expect(error.pluginIds).toEqual(["a"]);
   });
 
   it("reports import error as failure and still loads others", async () => {
@@ -180,6 +181,7 @@ describe("loadPluginsFromDirs error handling", () => {
     result.failures.forEach((f) => {
       expect(f.error.details).toMatchObject({ phase: "package-json" });
     });
+    expect(result.failures.map((f) => f.error.pluginIds)).toEqual([["abs"], ["up"]]);
   });
 
   it("reports a missing or non-object default export", async () => {
@@ -241,6 +243,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(failureOf(result).code).toBe("MANIFEST_INVALID");
     expect(failureOf(result).details).toMatchObject({ phase: "validate" });
     expect((failureOf(result).cause as Error).message).toBe("getter");
+    expect(failureOf(result).pluginIds).toEqual(["a"]);
   });
 
   it("entry named ..hidden.mjs inside the package is allowed", async () => {
@@ -264,6 +267,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(result.plugins).toEqual([]);
     expect(failureOf(result).code).toBe("MANIFEST_INVALID");
     expect(failureOf(result).message).toContain("non-empty string");
+    expect(failureOf(result).pluginIds).toEqual(["empty"]);
   });
 
   it("a Promise default export says to export the definition itself", async () => {
@@ -272,6 +276,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     const error = failureOf(await loadPluginsFromDirs([group("g")], { entry: "main" }));
     expect(error.code).toBe("MANIFEST_INVALID");
     expect(error.message).toContain("default export is a Promise; export the plugin definition itself");
+    expect(error.pluginIds).toEqual(["prom"]);
   });
 
   it("a non-Error throw inside validation still becomes a validate failure", async () => {
@@ -281,6 +286,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(error.code).toBe("MANIFEST_INVALID");
     expect(error.details).toMatchObject({ phase: "validate" });
     expect(error.cause).toBe("plain");
+    expect(error.pluginIds).toEqual(["a"]);
   });
 
   it.skipIf(!symlinksWork)("one package linked under two names loads once (by realpath)", async () => {

@@ -31,8 +31,10 @@ export interface LoadOptions {
 
 type Outcome = { skip: true } | { plugin: LoadedPlugin };
 
-const fail = (phase: Phase, message: string, extra: object = {}, cause?: unknown): LoomError =>
+/** `pluginId` is passed whenever `loom.id` is known; errors raised before that (package.json unreadable/invalid, no `loom.id`, directory errors) carry `pluginIds: []`. */
+const fail = (phase: Phase, message: string, extra: object = {}, cause?: unknown, pluginId?: string): LoomError =>
   new LoomError("MANIFEST_INVALID", message, {
+    ...(pluginId === undefined ? {} : { pluginIds: [pluginId] }),
     details: { phase, ...extra },
     ...(cause === undefined ? {} : { cause }),
   });
@@ -64,7 +66,7 @@ function readLoomField(pkg: unknown, dir: string, kind: "main" | "renderer"): { 
   if (typeof loom["id"] !== "string") throw fail("package-json", `"loom.id" in ${dir}/package.json must be a string`);
   const entry = loom[kind];
   if (entry !== undefined && (typeof entry !== "string" || entry === "")) {
-    throw fail("package-json", `"loom.${kind}" in ${dir}/package.json must be a non-empty string`, { pluginId: loom["id"] });
+    throw fail("package-json", `"loom.${kind}" in ${dir}/package.json must be a non-empty string`, {}, undefined, loom["id"]);
   }
   return entry === undefined ? { id: loom["id"] } : { id: loom["id"], entry };
 }
@@ -73,12 +75,12 @@ function resolveEntry(dir: string, id: string, rel: string): string {
   const full = resolve(dir, rel);
   const back = relative(dir, full);
   if (isAbsolute(rel) || back === "" || back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back)) {
-    throw fail("package-json", `Entry "${rel}" of "${id}" must stay inside ${dir}`, { pluginId: id, entry: rel });
+    throw fail("package-json", `Entry "${rel}" of "${id}" must stay inside ${dir}`, { entry: rel }, undefined, id);
   }
   return full;
 }
 
-async function importDefinition(entry: string, cacheBust: boolean): Promise<Record<string, unknown>> {
+async function importDefinition(entry: string, id: string, cacheBust: boolean): Promise<Record<string, unknown>> {
   try {
     const url = pathToFileURL(entry);
     if (cacheBust) url.search = `?v=${String((await stat(entry)).mtimeMs)}`;
@@ -86,25 +88,26 @@ async function importDefinition(entry: string, cacheBust: boolean): Promise<Reco
     const exported = mod.default;
     if (isRecord(exported) && typeof exported["then"] !== "function") return exported;
     if (exported instanceof Promise) {
-      throw fail("import", `${entry}: default export is a Promise; export the plugin definition itself`, { entry });
+      throw fail("import", `${entry}: default export is a Promise; export the plugin definition itself`, { entry }, undefined, id);
     }
   } catch (cause) {
     if (cause instanceof LoomError) throw cause;
-    throw fail("import", `Failed to import ${entry}`, { entry }, cause);
+    throw fail("import", `Failed to import ${entry}`, { entry }, cause, id);
   }
-  throw fail("import", `${entry} must have an object as its default export`, { entry });
+  throw fail("import", `${entry} must have an object as its default export`, { entry }, undefined, id);
 }
 
-function validate(candidate: unknown): PluginDefinition {
+function validate(imported: Record<string, unknown>, id: string): PluginDefinition {
   try {
-    return validatePlugin(candidate);
+    // Shallow copy: reads each getter once, and the imported module's object is never shared with the kernel.
+    return validatePlugin({ ...imported });
   } catch (cause) {
     // validatePlugin throws a LoomError with details.issues; check instead of trusting it, and
     // attribute anything else (a throwing getter reached during parsing) with the original as cause.
     const known = cause instanceof LoomError;
     const issues = known && isRecord(cause.details) ? cause.details["issues"] : undefined;
     throw new LoomError("MANIFEST_INVALID", cause instanceof Error ? cause.message : `Invalid plugin definition: ${String(cause)}`, {
-      pluginIds: known ? cause.pluginIds : [],
+      pluginIds: [id],
       details: { phase: "validate", ...(issues === undefined ? {} : { issues }) },
       cause,
     });
@@ -115,14 +118,15 @@ async function loadPackage(dir: string, opts: LoadOptions): Promise<Outcome> {
   const loom = readLoomField(await readManifest(dir), dir, opts.entry);
   if (!loom?.entry) return { skip: true };
   const entry = resolveEntry(dir, loom.id, loom.entry);
-  const imported = await importDefinition(entry, opts.cacheBust === true);
-  // Shallow copy: reads each getter once, and the imported module's object is never shared with the kernel.
-  const definition = validate({ ...imported });
+  const imported = await importDefinition(entry, loom.id, opts.cacheBust === true);
+  const definition = validate(imported, loom.id);
   if (definition.id !== loom.id) {
     throw fail(
       "validate",
       `Plugin id mismatch in ${dir}: package.json has "${loom.id}", definition has "${definition.id}"`,
       { packageId: loom.id, definitionId: definition.id },
+      undefined,
+      loom.id,
     );
   }
   return { plugin: { definition, dir, entry } };
