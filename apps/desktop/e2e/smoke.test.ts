@@ -21,7 +21,8 @@ const stubPids = (): string[] => {
 
 async function launch(): Promise<{ app: ElectronApplication; page: Page }> {
   const app = await electron.launch({
-    args: ["."],
+    // Linux CI runs Electron as a non-root user without a SUID chrome-sandbox helper
+    args: process.env.CI ? [".", "--no-sandbox"] : ["."],
     cwd: appDir,
     env: {
       ...process.env,
