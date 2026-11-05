@@ -29,6 +29,8 @@ interface Fingerprint {
   readonly attachInput: string | undefined;
   readonly conflict: Placed["conflict"];
   readonly schema: ZodType | undefined;
+  /** Plugin of the parent the node hangs off; it is named by schema errors. */
+  readonly parentPlugin: string | undefined;
   readonly kids: readonly ResolvedNode[];
 }
 
@@ -37,6 +39,7 @@ const fingerprints = new WeakMap<ResolvedNode, Fingerprint>();
 const usedServices = new WeakMap<ResolvedNode, ReadonlyMap<string, number>>();
 /** Every node of a built tree by id, keyed by its root, so the next build need not walk the old tree. */
 const nodesOf = new WeakMap<ResolvedNode, ReadonlyMap<string, ResolvedNode>>();
+const NO_ERRORS: readonly LoomError[] = [];
 const NO_NODES: ReadonlyMap<string, ResolvedNode> = new Map();
 
 interface Pass {
@@ -62,9 +65,9 @@ function sameArray<T>(a: readonly T[] | undefined, b: readonly T[] | undefined):
   return a !== undefined && b !== undefined && a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-function sameFingerprint(f: Fingerprint, p: Placed, schema: ZodType | undefined, kids: readonly ResolvedNode[]): boolean {
+function sameFingerprint(f: Fingerprint, p: Placed, schema: ZodType | undefined, parentPlugin: string | undefined, kids: readonly ResolvedNode[]): boolean {
   return (
-    f.pluginId === p.pluginId && f.ext === p.ext && f.inputs === p.inputs && f.schema === schema &&
+    f.pluginId === p.pluginId && f.ext === p.ext && f.inputs === p.inputs && f.schema === schema && f.parentPlugin === parentPlugin &&
     f.attachId === p.attach?.id && f.attachInput === p.attach?.input &&
     sameArray(f.conflict, p.conflict) && sameArray(f.kids, kids)
   );
@@ -87,90 +90,147 @@ function inputError(p: Placed, name: string, spec: InputSpec, all: readonly Reso
   return undefined;
 }
 
-function mkNode(p: Placed, inputs: Shown, value: unknown, error: LoomError | undefined): ResolvedNode {
-  const base = { id: p.id, pluginId: p.pluginId, inputs };
-  return error ? { ...base, value: undefined, error } : { ...base, value };
-}
-
-function build(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>, schema: ZodType | undefined, pass: Pass): ResolvedNode {
+/** What a node shows (`inputs`), what its factory gets, and every error found before the factory runs. */
+function wire(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>): { shown: Shown; given: FactoryInputs; errors: LoomError[] } {
   const shown: Shown = {};
   const given: FactoryInputs = {};
-  let error: LoomError | undefined = p.conflict
-    ? new LoomError("EXTENSION_CONFLICT", `Extension "${p.id}" is provided by several plugins: ${p.conflict.join(", ")}`, { pluginIds: p.conflict, details: { id: p.id } })
-    : undefined;
+  const errors: LoomError[] = [];
+  if (p.conflict) {
+    errors.push(new LoomError("EXTENSION_CONFLICT", `Extension "${p.id}" is provided by several plugins: ${p.conflict.join(", ")}`, { pluginIds: p.conflict, details: { id: p.id } }));
+  }
   for (const [name, spec] of Object.entries(p.inputs ?? {})) {
     const all = byInput.get(name) ?? [];
-    const healthy = all.filter((n) => n.error === undefined);
-    error ??= inputError(p, name, spec, all, healthy.length);
+    const healthy = all.filter((n) => n.errors.length === 0);
+    const bad = inputError(p, name, spec, all, healthy.length);
+    if (bad) errors.push(bad);
     shown[name] = spec.multiple || all.length > 1 ? all : all[0];
     given[name] = spec.multiple ? healthy : healthy[0];
   }
+  return { shown, given, errors };
+}
+
+function build(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>, schema: ZodType | undefined, pass: Pass): ResolvedNode {
+  const { shown, given, errors } = wire(p, byInput);
   let value: unknown;
   const used = new Map<string, number>();
   const trackedUse: Pass["use"] = (ref) => {
     used.set(ref.id, pass.serviceVersion?.(ref.id) ?? 0);
     return pass.use(ref);
   };
-  if (!error) {
+  if (errors.length === 0) {
     try {
       value = p.ext.factory({ inputs: given, use: trackedUse, config: undefined });
     } catch (cause) {
-      error = new LoomError("EXTENSION_FACTORY_FAILED", `Factory of extension "${p.id}" threw`, { pluginIds: [p.pluginId], cause });
+      errors.push(new LoomError("EXTENSION_FACTORY_FAILED", `Factory of extension "${p.id}" threw`, { pluginIds: [p.pluginId], cause }));
     }
   }
-  const parsed = !error && schema ? schema.safeParse(value) : undefined;
+  const parsed = errors.length === 0 && schema ? schema.safeParse(value) : undefined;
   if (parsed && !parsed.success) {
-    error = new LoomError("EXTENSION_INPUT_MISMATCH", `Value of extension "${p.id}" does not match the schema of its input`, {
+    errors.push(new LoomError("EXTENSION_INPUT_MISMATCH", `Value of extension "${p.id}" does not match the schema of its input`, {
       pluginIds: [p.pluginId, ...(p.attach ? [pass.index.placed.get(p.attach.id)?.pluginId ?? ""] : [])].filter(Boolean),
       details: parsed.error.issues,
-    });
+    }));
   }
-  const node = mkNode(p, shown, value, error);
+  const base = { id: p.id, pluginId: p.pluginId, inputs: shown };
+  const node: ResolvedNode = errors.length > 0 ? { ...base, value: undefined, errors } : { ...base, value, errors: NO_ERRORS };
   usedServices.set(node, used);
   return node;
 }
 
 /** A previous node is stale if its factory failed or a service it used has changed since. */
 function isStale(prev: ResolvedNode, pass: Pass): boolean {
-  if (prev.error?.code === "EXTENSION_FACTORY_FAILED") return true;
+  if (prev.errors.some((x) => x.code === "EXTENSION_FACTORY_FAILED")) return true;
   for (const [refId, version] of usedServices.get(prev) ?? []) {
     if ((pass.serviceVersion?.(refId) ?? 0) !== version) return true;
   }
   return false;
 }
 
-function resolveNode(p: Placed, schema: ZodType | undefined, pass: Pass): ResolvedNode {
-  const byInput = new Map<string, ResolvedNode[]>();
-  const kids: ResolvedNode[] = [];
+function sameCause(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  return a instanceof Error && b instanceof Error && a.name === b.name && a.message === b.message;
+}
+
+/** Both nodes failed in their factory in the same way (a retry that threw the same thing again). */
+function sameFailure(a: ResolvedNode, b: ResolvedNode): boolean {
+  const [x, y] = [a.errors[0], b.errors[0]];
+  return a.errors.length === 1 && b.errors.length === 1 && x?.code === "EXTENSION_FACTORY_FAILED" && y?.code === "EXTENSION_FACTORY_FAILED" && sameCause(x.cause, y.cause);
+}
+
+/** One input slot of a node waiting to be resolved: the child `c` hangs off input `name`. */
+interface Slot {
+  readonly name: string;
+  readonly schema: ZodType | undefined;
+  readonly c: Placed;
+}
+
+/** A node whose children are being resolved; `next` is the next slot to descend into. */
+interface Frame {
+  readonly p: Placed;
+  readonly schema: ZodType | undefined;
+  readonly slots: readonly Slot[];
+  next: number;
+}
+
+function frameOf(p: Placed, schema: ZodType | undefined, pass: Pass): Frame {
   const attached = pass.index.children.get(p.id);
+  const slots: Slot[] = [];
   for (const [name, spec] of Object.entries(p.inputs ?? {})) {
-    const list: ResolvedNode[] = [];
-    for (const c of attached?.get(name) ?? []) {
-      const child = resolveNode(c, spec.schema, pass);
-      list.push(child);
-      kids.push(child);
-    }
-    byInput.set(name, list);
+    for (const c of attached?.get(name) ?? []) slots.push({ name, schema: spec.schema, c });
   }
+  return { p, schema, slots, next: 0 };
+}
+
+/** All children of `frame` are in `pass.nodes`: reuse the previous node if nothing it was built from changed, else build. */
+function finish(frame: Frame, pass: Pass): void {
+  const { p, schema } = frame;
+  const byInput = new Map<string, ResolvedNode[]>();
+  for (const name of Object.keys(p.inputs ?? {})) byInput.set(name, []);
+  const kids: ResolvedNode[] = [];
+  for (const slot of frame.slots) {
+    const child = pass.nodes.get(slot.c.id) as ResolvedNode;
+    byInput.get(slot.name)?.push(child);
+    kids.push(child);
+  }
+  const parentPlugin = p.attach ? pass.index.placed.get(p.attach.id)?.pluginId : undefined;
   const prev = pass.previous.get(p.id);
   const prevPrint = prev && fingerprints.get(prev);
-  let node: ResolvedNode;
-  if (prev && prevPrint && sameFingerprint(prevPrint, p, schema, kids) && !isStale(prev, pass)) node = prev;
-  else {
-    node = build(p, byInput, schema, pass);
+  const same = prev !== undefined && prevPrint !== undefined && sameFingerprint(prevPrint, p, schema, parentPlugin, kids);
+  let node = same && !isStale(prev, pass) ? prev : build(p, byInput, schema, pass);
+  // a failing factory is retried every build, but failing the same way again is no change
+  if (same && node !== prev && sameFailure(prev, node)) node = prev;
+  if (node !== prev) {
     fingerprints.set(node, {
-      pluginId: p.pluginId, ext: p.ext, inputs: p.inputs, schema, kids,
+      pluginId: p.pluginId, ext: p.ext, inputs: p.inputs, schema, kids, parentPlugin,
       attachId: p.attach?.id, attachInput: p.attach?.input, conflict: p.conflict,
     });
   }
   pass.nodes.set(p.id, node);
-  return node;
 }
 
-function collectErrors(node: ResolvedNode | undefined, into: LoomError[]): void {
-  if (!node) return;
-  if (node.error) into.push(node.error);
-  for (const c of childrenOf(node)) collectErrors(c, into);
+/** Resolves the tree under `root` children first with an explicit stack, so depth is limited by memory, not by the call stack. */
+function resolveTree(root: Placed, pass: Pass): ResolvedNode {
+  const stack = [frameOf(root, undefined, pass)];
+  for (let top = stack.at(-1); top; top = stack.at(-1)) {
+    const slot = top.slots[top.next];
+    if (slot) {
+      top.next++;
+      stack.push(frameOf(slot.c, slot.schema, pass));
+    } else {
+      stack.pop();
+      finish(top, pass);
+    }
+  }
+  return pass.nodes.get(root.id) as ResolvedNode;
+}
+
+/** Errors in tree order: a node's own errors, then those of its inputs' children. Iterative for the same reason as `resolveTree`. */
+function collectErrors(root: ResolvedNode | undefined, into: LoomError[]): void {
+  const stack = root ? [root] : [];
+  for (let node = stack.pop(); node; node = stack.pop()) {
+    into.push(...node.errors);
+    stack.push(...childrenOf(node).reverse());
+  }
 }
 
 function orphanKey(o: Orphan): string {
@@ -193,7 +253,7 @@ export function buildTree(
   const prevNodes = (previous?.root && nodesOf.get(previous.root)) ?? NO_NODES;
   const pass: Pass = { index, use, previous: prevNodes, nodes: new Map(), serviceVersion };
   const rootPlaced = index.placed.get(index.rootId);
-  const root = rootPlaced ? resolveNode(rootPlaced, undefined, pass) : undefined;
+  const root = rootPlaced ? resolveTree(rootPlaced, pass) : undefined;
   if (root) nodesOf.set(root, pass.nodes);
   const orphans = findOrphans(index, pass.nodes);
   if (previous && previous.root === root && sameOrphans(previous.orphans, orphans)) return previous;

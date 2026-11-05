@@ -292,6 +292,7 @@ describe("@loom/react stability and failed reconcile", () => {
       pluginId: "p",
       value: { component: Throws },
       inputs: {},
+      errors: [],
     });
     const first = node();
     const original = console.error;

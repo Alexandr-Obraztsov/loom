@@ -112,50 +112,63 @@ function stepUp(index: TreeIndex, p: Placed): string | Placed {
   return parent;
 }
 
-/** Where a detached extension's walk up ends: the last node, why it hangs off nothing, and the plugins on the way. */
-interface Terminal {
-  readonly cur: Placed;
-  readonly reason: string;
-  readonly pluginIds: readonly string[];
+/** How a detached extension's walk up ends, shared by every node on the way. */
+type Terminal =
+  | { readonly kind: "missing"; readonly last: Placed; readonly reason: string; readonly pluginIds: readonly string[] }
+  | { readonly kind: "cycle"; readonly ring: readonly string[]; readonly pluginIds: readonly string[] };
+
+function addPlugin(plugin: string, ids: readonly string[]): readonly string[] {
+  return [...new Set([plugin, ...ids])];
+}
+
+/** The attachTo cycle `up` closes: from `up` along `chain` to its end. Built once per cycle and shared. */
+function ringOf(chain: readonly Placed[], up: Placed): Terminal {
+  const ring = chain.slice(chain.indexOf(up));
+  return { kind: "cycle", ring: ring.map((c) => c.id), pluginIds: [...new Set(ring.map((c) => c.pluginId))] };
 }
 
 /**
- * Walks up from `start` to the first missing link. Terminals are memoized for every node on the
- * way, so the reasons of a detached chain of n extensions cost O(n), not O(n²).
+ * Walks up from `start` to the first missing link or to an attachTo cycle. The end of the walk is
+ * memoized for every node on the way, so the reasons of a detached chain of n extensions cost O(n)
+ * in time and in error size, not O(n²) (a chain hanging off a cycle shares the one ring).
  */
-function reasonFor(index: TreeIndex, start: Placed, memo: Map<string, Terminal>): LoomError {
+function terminalOf(index: TreeIndex, start: Placed, memo: Map<string, Terminal>): Terminal {
   const chain: Placed[] = [start];
   const seen = new Set([start.id]);
   let cur = start;
   let known = memo.get(cur.id);
   while (!known) {
     const up = stepUp(index, cur);
-    if (typeof up === "string") {
-      known = { cur, reason: up, pluginIds: [cur.pluginId] };
-      memo.set(cur.id, known);
-    } else if (seen.has(up.id)) return cycleError(start, chain, up);
-    else {
+    if (typeof up !== "string" && !seen.has(up.id)) {
       seen.add(up.id);
       chain.push(up);
       cur = up;
       known = memo.get(cur.id);
+    } else {
+      known = typeof up === "string" ? { kind: "missing", last: cur, reason: up, pluginIds: [cur.pluginId] } : ringOf(chain, up);
+      memo.set(cur.id, known);
     }
   }
+  // `chain` ends at the node whose terminal is known (it is memoized); the nodes before it learn it now
   for (let i = chain.length - 2; i >= 0; i--) {
     const node = chain[i] as Placed;
-    known = { ...known, pluginIds: [...new Set([node.pluginId, ...known.pluginIds])] };
+    // a ring member keeps the ring's own plugins; a tail node adds only itself
+    known = { ...known, pluginIds: addPlugin(node.pluginId, known.pluginIds) };
     memo.set(node.id, known);
   }
-  const { cur: last, reason, pluginIds } = known;
-  const what = last === start ? `Extension "${start.id}" ${reason}` : `Extension "${start.id}" is unreachable: ancestor "${last.id}" ${reason}`;
-  return new LoomError("EXTENSION_INPUT_MISMATCH", what, { pluginIds });
+  return known;
 }
 
-/** `start` is in or hangs off an attachTo cycle that `up` closes; `chain` runs from `start` to just before `up`. */
-function cycleError(start: Placed, chain: readonly Placed[], up: Placed): LoomError {
-  const pluginIds = [...new Set(chain.map((c) => c.pluginId))];
-  const ids = chain.map((c) => c.id);
-  return new LoomError("DEPENDENCY_CYCLE", `Extension "${start.id}" is part of or hangs off an attachTo cycle: ${[...ids, up.id].join(" -> ")}`, { pluginIds, details: { chain: ids } });
+function reasonFor(index: TreeIndex, start: Placed, memo: Map<string, Terminal>): LoomError {
+  const end = terminalOf(index, start, memo);
+  if (end.kind === "cycle") {
+    return new LoomError("DEPENDENCY_CYCLE", `Extension "${start.id}" is part of or hangs off an attachTo cycle: ${[...end.ring, end.ring[0]].join(" -> ")}`, {
+      pluginIds: end.pluginIds,
+      details: { chain: end.ring },
+    });
+  }
+  const what = end.last === start ? `Extension "${start.id}" ${end.reason}` : `Extension "${start.id}" is unreachable: ancestor "${end.last.id}" ${end.reason}`;
+  return new LoomError("EXTENSION_INPUT_MISMATCH", what, { pluginIds: end.pluginIds });
 }
 
 /** Every placed extension that the resolve pass did not reach, with the reason it is detached. */

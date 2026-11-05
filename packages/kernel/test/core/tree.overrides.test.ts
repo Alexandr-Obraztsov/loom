@@ -48,12 +48,12 @@ describe("buildTree overrides and conflicts", () => {
     ];
     const r = buildTree(entries, {}, use);
     const node = (r.root?.inputs["slot"] as ResolvedNode[])[0];
-    expect(node?.error?.code).toBe("EXTENSION_CONFLICT");
-    expect(node?.error?.pluginIds).toEqual(["o1", "o2"]);
+    expect(node?.errors[0]?.code).toBe("EXTENSION_CONFLICT");
+    expect(node?.errors[0]?.pluginIds).toEqual(["o1", "o2"]);
     expect(node?.value).toBeUndefined();
     expect(childIds(node, "slot")).toEqual(["kid"]);
     expect(factory).not.toHaveBeenCalled();
-    expect(r.errors).toEqual([node?.error]);
+    expect(r.errors).toEqual(node?.errors);
   });
 
   it("winners picks one of two overrides", () => {
@@ -66,7 +66,7 @@ describe("buildTree overrides and conflicts", () => {
   it("two non-override extensions with one id conflict unless a winner is configured", () => {
     const entries = [e("p", ext("app", { inputs: slot })), e("a", ext("dup", { attachTo: at("app", "slot") })), e("b", ext("dup", { attachTo: at("app", "slot") }))];
     const conflict = buildTree(entries, {}, use);
-    expect((conflict.root?.inputs["slot"] as ResolvedNode[])[0]?.error?.pluginIds).toEqual(["a", "b"]);
+    expect((conflict.root?.inputs["slot"] as ResolvedNode[])[0]?.errors[0]?.pluginIds).toEqual(["a", "b"]);
     const won = buildTree(entries, { winners: { dup: "b" } }, use);
     expect((won.root?.inputs["slot"] as ResolvedNode[])[0]).toMatchObject({ pluginId: "b", value: "dup" });
   });

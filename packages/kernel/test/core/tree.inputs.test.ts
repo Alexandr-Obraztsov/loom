@@ -14,10 +14,10 @@ describe("buildTree input rules", () => {
       e("b", ext("y", { attachTo: at("app", "one") })),
     ];
     const r = buildTree(entries, {}, use);
-    expect(r.root?.error?.code).toBe("EXTENSION_CONFLICT");
-    expect(r.root?.error?.pluginIds).toEqual(expect.arrayContaining(["p", "a", "b"]));
-    expect(r.root?.error?.message).toContain("x");
-    expect(r.root?.error?.message).toContain("y");
+    expect(r.root?.errors[0]?.code).toBe("EXTENSION_CONFLICT");
+    expect(r.root?.errors[0]?.pluginIds).toEqual(expect.arrayContaining(["p", "a", "b"]));
+    expect(r.root?.errors[0]?.message).toContain("x");
+    expect(r.root?.errors[0]?.message).toContain("y");
     expect(r.root?.value).toBeUndefined();
     expect(factory).not.toHaveBeenCalled();
     expect((r.root?.inputs["one"] as ResolvedNode[]).map((n) => n.id)).toEqual(["x", "y"]);
@@ -26,8 +26,8 @@ describe("buildTree input rules", () => {
   it("required input with no healthy child errors the parent", () => {
     const entries = [e("p", ext("app", { inputs: { one: { required: true } } }))];
     const r = buildTree(entries, {}, use);
-    expect(r.root?.error?.code).toBe("EXTENSION_INPUT_MISMATCH");
-    expect(r.root?.error?.pluginIds).toEqual(["p"]);
+    expect(r.root?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect(r.root?.errors[0]?.pluginIds).toEqual(["p"]);
     expect(r.root?.value).toBeUndefined();
   });
 
@@ -36,7 +36,7 @@ describe("buildTree input rules", () => {
       e("p", ext("app", { inputs: { s: { multiple: true, required: true, schema: z.number() } } })),
       e("q", ext("bad", { attachTo: at("app", "s") })),
     ];
-    expect(buildTree(entries, {}, use).root?.error?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect(buildTree(entries, {}, use).root?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
 
   it("schema failure marks the child EXTENSION_INPUT_MISMATCH and excludes it from the factory inputs but not from node.inputs", () => {
@@ -51,11 +51,11 @@ describe("buildTree input rules", () => {
     const all = r.root?.inputs["s"] as ResolvedNode[];
     expect(all.map((n) => n.id)).toEqual(["good", "bad"]);
     const bad = all[1];
-    expect(bad?.error?.code).toBe("EXTENSION_INPUT_MISMATCH");
-    expect(bad?.error?.pluginIds).toEqual(["q", "p"]);
-    expect(Array.isArray(bad?.error?.details)).toBe(true);
+    expect(bad?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect(bad?.errors[0]?.pluginIds).toEqual(["q", "p"]);
+    expect(Array.isArray(bad?.errors[0]?.details)).toBe(true);
     expect(bad?.value).toBeUndefined();
-    expect(r.errors).toEqual([bad?.error]);
+    expect(r.errors).toEqual(bad?.errors);
   });
 
   it("errored single child is not passed to the factory", () => {
@@ -66,7 +66,7 @@ describe("buildTree input rules", () => {
     ];
     const r = buildTree(entries, {}, use);
     expect(seen?.inputs["one"]).toBeUndefined();
-    expect((r.root?.inputs["one"] as ResolvedNode).error?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect((r.root?.inputs["one"] as ResolvedNode).errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
 });
 
@@ -82,14 +82,14 @@ describe("buildTree failures", () => {
     ];
     const r = buildTree(entries, {}, use);
     expect(r.root?.value).toBe("parent");
-    expect(r.root?.error).toBeUndefined();
+    expect(r.root?.errors).toEqual([]);
     const kids = r.root?.inputs["slot"] as ResolvedNode[];
     expect(kids.map((n) => n.value)).toEqual(["ok1", undefined, "ok2"]);
-    expect(kids[1]?.error?.code).toBe("EXTENSION_FACTORY_FAILED");
-    expect(kids[1]?.error?.cause).toBe(boom);
-    expect(kids[1]?.error?.pluginIds).toEqual(["q"]);
+    expect(kids[1]?.errors[0]?.code).toBe("EXTENSION_FACTORY_FAILED");
+    expect(kids[1]?.errors[0]?.cause).toBe(boom);
+    expect(kids[1]?.errors[0]?.pluginIds).toEqual(["q"]);
     expect(parentSaw.map((n) => n.id)).toEqual(["ok1", "ok2"]);
-    expect(r.errors).toEqual([kids[1]?.error]);
+    expect(r.errors).toEqual(kids[1]?.errors);
   });
 
   it("errors are listed in tree order, node errors before child errors, then orphans", () => {
