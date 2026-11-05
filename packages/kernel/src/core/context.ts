@@ -10,7 +10,10 @@ export interface PluginContextArgs {
   /** dependsOn ids plus present optionalDependsOn ids; computed by the caller. */
   readonly allowed: ReadonlySet<string>;
   readonly config: unknown;
+  /** Kept by reference across reloads; a failed pass restores it from a shallow copy (nested objects are shared, not snapshotted). */
   readonly state: Record<string, unknown>;
+  /** Lets the owner replace the service `ctx.use` hands out (the kernel guards PluginsService against re-entrancy). */
+  readonly wrapUse?: <T extends object>(ref: ServiceRef<T>, service: T) => T;
   readonly services: ServiceRegistry;
   readonly hooks: HookRegistry;
   readonly events: EventBus;
@@ -25,15 +28,18 @@ export interface ScopedPluginContext {
  * Builds the context passed to `plugin.setup`. Every registration is owned by
  * the plugin id; `dispose` runs onDispose callbacks (reverse order) and then
  * removes the owner from services, hooks and events, even if a callback threw.
+ * `onDispose` callbacks run after the context is closed: calling `ctx` methods from them throws
+ * DISPOSED, so a callback must close over what it needs (service proxies, handles) beforehand.
  */
 export function createPluginContext(args: PluginContextArgs): ScopedPluginContext {
   const { plugin, allowed, services, hooks, events } = args;
   const id = plugin.id;
   const store = new DisposableStore();
   let pending: Promise<void> | undefined;
+  let closed = false;
 
   const live = (): void => {
-    if (pending) throw new LoomError("DISPOSED", `Plugin context of "${id}" is disposed`, { pluginIds: [id] });
+    if (closed) throw new LoomError("DISPOSED", `Plugin context of "${id}" is disposed`, { pluginIds: [id] });
   };
 
   const ctx: PluginContext = {
@@ -54,7 +60,8 @@ export function createPluginContext(args: PluginContextArgs): ScopedPluginContex
     },
     use<T extends object>(ref: ServiceRef<T>): T {
       live();
-      return services.use(ref, id, allowed);
+      const service = services.use(ref, id, allowed);
+      return args.wrapUse ? args.wrapUse(ref, service) : service;
     },
     tap<C, R>(hook: HookRef<C, R>, opts: TapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R): void {
       live();
@@ -81,6 +88,7 @@ export function createPluginContext(args: PluginContextArgs): ScopedPluginContex
   };
 
   const dispose = (): Promise<void> => {
+    closed = true; // before the first callback runs, which may be synchronous
     pending ??= (async () => {
       try {
         await store.dispose();

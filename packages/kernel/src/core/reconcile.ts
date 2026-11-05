@@ -121,7 +121,7 @@ export interface ReconcileRuntime {
  * the failing plugin, with the thrown value as `cause`. When the cause is a
  * LoomError, `pluginIds` is the union of the failing plugin and the cause's
  * plugins (e.g. both sides of a service conflict) and `details.causeCode` is
- * the cause's code.
+ * the cause's code (or, for a SETUP_FAILED cause that has its own `causeCode`, that one).
  *
  * If re-setting up a previous version fails too, the kernel is broken: that
  * plugin and its dependents in the snapshot are left down, each failure is
@@ -140,7 +140,7 @@ export async function applyReconcile(plan: ReconcilePlan, rt: ReconcileRuntime):
       for (const d of done.reverse()) await rt.teardown(d);
       rt.restore();
       const notRestored = await restoreSnapshot(plan, rt);
-      const causeCode = cause instanceof LoomError ? cause.code : undefined;
+      const causeCode = rootCauseCode(cause);
       const details = {
         ...(causeCode ? { causeCode } : {}),
         ...(notRestored.length > 0 ? { rollbackFailed: true, notRestored } : {}),
@@ -153,6 +153,13 @@ export async function applyReconcile(plan: ReconcilePlan, rt: ReconcileRuntime):
     }
     done.push(def);
   }
+}
+
+/** The cause's code; a SETUP_FAILED that itself carries a `causeCode` (a refused re-entrant call) passes that one on. */
+function rootCauseCode(cause: unknown): string | undefined {
+  if (!(cause instanceof LoomError)) return undefined;
+  const inner = (cause.details as { causeCode?: unknown } | undefined)?.causeCode;
+  return cause.code === "SETUP_FAILED" && typeof inner === "string" ? inner : cause.code;
 }
 
 async function restoreSnapshot(plan: ReconcilePlan, rt: ReconcileRuntime): Promise<string[]> {

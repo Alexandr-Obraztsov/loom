@@ -5,8 +5,14 @@ import type { PluginDefinition, ServiceRef } from "./types.js";
 
 /**
  * The kernel's own service. Every call is queued behind running reconciles,
- * so a plugin must not await it from its own `setup` or `onDispose` (that
- * would wait for the reconcile that is running the plugin: a deadlock).
+ * so awaiting it from the plugin's own `setup` or `onDispose` would wait for
+ * the reconcile that is running that very callback. The service a plugin gets
+ * from `ctx.use` detects this: `install`, `uninstall`, `enable`, `disable` and
+ * `reload` called while the calling plugin is being set up or torn down reject
+ * with a `SETUP_FAILED` whose `details.causeCode` is `"REENTRANT_RECONCILE"`
+ * (the pass that runs the callback then fails with the same `causeCode`).
+ * Once the callback returned, the plugin may call the service freely. Calls
+ * made through `Kernel.services` by the host are never refused.
  *
  * Plugins can change one catalogue entry at a time but cannot trigger a full
  * `reconcile()`: replacing the whole plugin set belongs to the host that
@@ -23,7 +29,11 @@ export interface PluginsService {
   uninstall(id: string): Promise<ReconcileDiff>;
   /** Re-activates a disabled plugin; an unknown id rejects with PLUGIN_UNKNOWN. */
   enable(id: string): Promise<ReconcileDiff>;
-  /** Keeps the definition but removes it from the active set; an unknown id rejects with PLUGIN_UNKNOWN. */
+  /**
+   * Keeps the definition but removes it from the active set; an unknown id rejects with PLUGIN_UNKNOWN.
+   * Disabling counts as removal: the plugin is torn down and its `ctx.state` is dropped, so `enable`
+   * starts it with an empty state.
+   */
   disable(id: string): Promise<ReconcileDiff>;
   /**
    * Replaces the definition and re-runs its setup even if it is the same object, keeping the enabled flag.
@@ -69,9 +79,7 @@ function entryOf(catalog: readonly CatalogEntry[], id: string): CatalogEntry {
 function setEnabled(id: string, enabled: boolean) {
   return (catalog: readonly CatalogEntry[]): CatalogChange => {
     entryOf(catalog, id);
-    return {
-    catalog: catalog.map((e) => (e.def.id === id ? { def: e.def, enabled } : e)),
-    };
+    return { catalog: catalog.map((e) => (e.def.id === id ? { def: e.def, enabled } : e)) };
   };
 }
 
@@ -103,5 +111,30 @@ export function createPluginsService(host: PluginsServiceHost): PluginsService {
       }));
     },
     list: () => host.catalog().map((e) => ({ id: e.def.id, version: e.def.version, enabled: e.enabled })),
+  };
+}
+
+/**
+ * The view of `service` handed to plugin `pluginId`: the calls that would queue behind a reconcile
+ * reject while `isBusy()` (the plugin's setup or teardown is running) instead of waiting for it forever.
+ */
+export function refuseReentrancy(service: PluginsService, pluginId: string, isBusy: () => boolean): PluginsService {
+  const guarded = <A extends unknown[]>(call: (...args: A) => Promise<ReconcileDiff>) =>
+    (...args: A): Promise<ReconcileDiff> =>
+      isBusy()
+        ? Promise.reject(
+            new LoomError("SETUP_FAILED", `Plugin "${pluginId}" called PluginsService while its own setup or teardown was running`, {
+              pluginIds: [pluginId],
+              details: { causeCode: "REENTRANT_RECONCILE" },
+            }),
+          )
+        : call(...args);
+  return {
+    install: guarded((def) => service.install(def)),
+    uninstall: guarded((id) => service.uninstall(id)),
+    enable: guarded((id) => service.enable(id)),
+    disable: guarded((id) => service.disable(id)),
+    reload: guarded((def) => service.reload(def)),
+    list: () => service.list(),
   };
 }
