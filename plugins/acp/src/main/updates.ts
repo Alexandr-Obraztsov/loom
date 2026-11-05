@@ -158,6 +158,8 @@ export class SessionLog {
   };
 
   private applyUpdate(update: SessionUpdate): void {
+    // own keys only: an agent-sent "valueOf" or "__proto__" must not resolve to an inherited function
+    if (!Object.hasOwn(SessionLog.HANDLERS, update.sessionUpdate)) return;
     const handler = SessionLog.HANDLERS[update.sessionUpdate] as ((log: SessionLog, u: SessionUpdate) => void) | undefined;
     handler?.(this, update);
   }
