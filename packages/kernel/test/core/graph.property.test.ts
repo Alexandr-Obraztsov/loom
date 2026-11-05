@@ -65,3 +65,70 @@ describe("resolveOrder properties", () => {
     );
   });
 });
+
+/** Like the DAG above, but optional edges may also point at plugins that are absent. */
+const withAbsentOptionals = dagArb.chain((plugins) =>
+  fc.tuple(
+    fc.constant(plugins),
+    fc.array(fc.tuple(fc.nat(), fc.nat({ max: 3 })), { maxLength: 10 }),
+  ),
+);
+
+describe("resolveOrder properties: absent optionals and cycles", () => {
+  it("reports exactly the absent optional dependencies and still orders the rest", () => {
+    fc.assert(
+      fc.property(withAbsentOptionals, ([plugins, picks]) => {
+        if (plugins.length === 0) return true;
+        const extended = plugins.map((pl) => ({ ...pl, optionalDependsOn: { ...pl.optionalDependsOn } }));
+        const expected = new Map<string, Set<string>>();
+        for (const [raw, k] of picks) {
+          const target = extended[raw % extended.length];
+          if (!target) continue;
+          const ghost = `ghost${String(k)}`;
+          target.optionalDependsOn[ghost] = "*";
+          (expected.get(target.id) ?? expected.set(target.id, new Set()).get(target.id))?.add(ghost);
+        }
+        const { order, skippedOptional } = resolveOrder(extended);
+        if (order.length !== extended.length) return false;
+        if (skippedOptional.size !== expected.size) return false;
+        return [...expected].every(([id, ghosts]) => [...(skippedOptional.get(id) ?? [])].sort().join() === [...ghosts].sort().join());
+      }),
+      { numRuns: 300 },
+    );
+  });
+
+  it("a back edge turns any DAG into DEPENDENCY_CYCLE whose path follows real dependencies", () => {
+    fc.assert(
+      fc.property(
+        dagArb.filter((d) => d.length >= 2),
+        fc.nat(),
+        (plugins, raw) => {
+          const last = plugins.length - 1;
+          const from = raw % last;
+          // the last plugin depends on `from`; make `from` depend on the last one
+          const edited = plugins.map((pl, i) =>
+            i === from ? { ...pl, dependsOn: { ...pl.dependsOn, [name(last)]: "*" } } : pl,
+          );
+          const closing = edited.map((pl, i) =>
+            i === last ? { ...pl, dependsOn: { ...pl.dependsOn, [name(from)]: "*" } } : pl,
+          );
+          try {
+            resolveOrder(closing);
+          } catch (e) {
+            const err = e as { code: string; pluginIds: string[] };
+            if (err.code !== "DEPENDENCY_CYCLE") return false;
+            const byName = new Map(closing.map((pl) => [pl.id, pl]));
+            const cycle = err.pluginIds;
+            return cycle.every((id, i) => {
+              const next = cycle[(i + 1) % cycle.length] as string;
+              const pl = byName.get(id);
+              return pl !== undefined && (next in (pl.dependsOn ?? {}) || next in (pl.optionalDependsOn ?? {}));
+            });
+          }
+          return false;
+        },
+      ),
+      { numRuns: 300 },
+    );
+  });
+});

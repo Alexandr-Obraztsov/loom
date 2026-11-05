@@ -136,3 +136,26 @@ describe("scale", () => {
     expect(dependentsOf(["hub"], plugins).size).toBe(n + 1);
   });
 });
+
+describe("resolveOrder error priority and cycle choice", () => {
+  it("MANIFEST_INVALID (duplicate ids) takes priority over DEPENDENCY_MISSING", () => {
+    const err = caught(() => resolveOrder([p("a", { ghost: "*" }), p("dup"), p("dup")]));
+    expect(err.code).toBe("MANIFEST_INVALID");
+  });
+
+  it("DEPENDENCY_VERSION takes priority over DEPENDENCY_CYCLE", () => {
+    const err = caught(() => resolveOrder([p("a", { b: "*" }), p("b", { a: "*" }), p("c", { a: "^9.0.0" })]));
+    expect(err.code).toBe("DEPENDENCY_VERSION");
+  });
+
+  it("with several cycles reports the one reachable from the smallest remaining id", () => {
+    const err = caught(() => resolveOrder([p("y", { z: "*" }), p("z", { y: "*" }), p("b", { c: "*" }), p("c", { b: "*" })]));
+    expect(err.code).toBe("DEPENDENCY_CYCLE");
+    expect(err.pluginIds).toEqual(["b", "c"]);
+  });
+
+  it("a cycle reached through a non-cyclic prefix reports only the cycle", () => {
+    const err = caught(() => resolveOrder([p("a", { b: "*" }), p("b", { c: "*" }), p("c", { b: "*" })]));
+    expect(err.pluginIds).toEqual(["b", "c"]);
+  });
+});

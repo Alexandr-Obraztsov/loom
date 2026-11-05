@@ -2,6 +2,7 @@
 import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
 import { createServiceRef } from "../src/core/definitions.js";
+import { createEventBus } from "../src/core/events.js";
 import { createHookRegistry } from "../src/core/hooks.js";
 import { createKernel } from "../src/core/kernel.js";
 import { createServiceRegistry } from "../src/core/services.js";
@@ -121,5 +122,19 @@ describe("performance guards: tree, services, hooks", () => {
     expect(await reg.run(pluginHook, 0, fallback)).toBe(20);
     const ms = await measure(10_000, 5, () => reg.run(pluginHook, 0, fallback));
     expect(ms, `20-tap async run took ${(ms * 1000).toFixed(2)} µs`).toBeLessThan(0.05);
+  });
+});
+
+describe("event bus subscription", () => {
+  it("4000 subscriptions of one type take < 5 ms (O(1) amortized)", () => {
+    const bus = createEventBus({ onError: () => undefined });
+    const noop = (): void => undefined;
+    const subscribe = (): number => {
+      const start = performance.now();
+      for (let i = 0; i < 4000; i++) bus.on("t", `o${String(i)}`, noop);
+      return performance.now() - start;
+    };
+    const ms = subscribe();
+    expect(ms, `4000 subscriptions took ${ms.toFixed(2)} ms`).toBeLessThan(5);
   });
 });

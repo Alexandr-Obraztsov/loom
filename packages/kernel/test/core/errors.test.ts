@@ -26,3 +26,12 @@ describe("LoomError", () => {
     expect(err.cause).toBeUndefined();
   });
 });
+
+describe("LoomError details", () => {
+  it("is an own property even when absent (contract: undefined, never missing)", () => {
+    const err = new LoomError("DISPOSED", "gone");
+    expect(Object.hasOwn(err, "details")).toBe(true);
+    expect(err.details).toBeUndefined();
+    expect(Object.hasOwn(err, "cause")).toBe(false);
+  });
+});

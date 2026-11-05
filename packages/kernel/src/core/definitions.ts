@@ -1,7 +1,24 @@
 import type { ExtensionDefinition, HookRef, PluginDefinition, ServiceRef } from "./types.js";
 
+/** Freezes `list` and each definition object in it (not what they hold). */
+function freezeAll(list: readonly object[] | undefined): void {
+  if (list === undefined) return;
+  for (const item of list) Object.freeze(item);
+  Object.freeze(list);
+}
+
+/**
+ * Returns `def` with its structure frozen: the object itself, `dependsOn`, `optionalDependsOn`,
+ * the `extensions` and `overrides` arrays and the extension definitions in them. Changing that
+ * structure throws a `TypeError` in strict mode. Values the plugin puts inside (config, `inputs`,
+ * schemas, components, `startup`) stay mutable: they are the plugin's own data.
+ */
 export function definePlugin(def: PluginDefinition): PluginDefinition {
-  return def;
+  if (def.dependsOn) Object.freeze(def.dependsOn);
+  if (def.optionalDependsOn) Object.freeze(def.optionalDependsOn);
+  freezeAll(def.extensions);
+  freezeAll(def.overrides);
+  return Object.freeze(def);
 }
 
 export function createServiceRef<T>(id: string): ServiceRef<T> {
@@ -16,11 +33,28 @@ export function createExtension<O>(def: ExtensionDefinition<O>): ExtensionDefini
   return def;
 }
 
+/** Process-local identities for things that have no structure to hash: `Symbol()` values and class prototypes. */
+const identities = new WeakMap<WeakKey, number>();
+let lastIdentity = 0;
+
+function identity(value: WeakKey): string {
+  let id = identities.get(value);
+  if (id === undefined) identities.set(value, (id = ++lastIdentity));
+  return String(id);
+}
+
+function symbolKey(value: symbol): string {
+  const key = Symbol.keyFor(value);
+  return key === undefined ? `#symbol:${identity(value)}` : `#symbol:for:${JSON.stringify(key)}`;
+}
+
 function scalar(value: unknown): string {
   if (typeof value === "function") return `#fn:${value.name}`;
   if (typeof value === "bigint") return `#${String(value)}n`;
   if (typeof value === "number" && !Number.isFinite(value)) return `#${String(value)}`;
-  if (value === undefined || typeof value === "symbol") return `#${String(value)}`;
+  if (Object.is(value, -0)) return "#-0";
+  if (typeof value === "symbol") return symbolKey(value);
+  if (value === undefined) return "#undefined";
   return JSON.stringify(value);
 }
 
@@ -43,7 +77,9 @@ function canonical(value: unknown, path: WeakSet<object> = new WeakSet()): strin
     const entries = Object.entries(value)
       .filter(([, v]) => v !== undefined)
       .map(([k, v]) => `${JSON.stringify(k)}:${walk(v)}`);
-    out = `{${sortStrings(entries).join(",")}}`;
+    const proto: unknown = Object.getPrototypeOf(value);
+    const brand = proto === Object.prototype || proto === null ? "" : `#proto:${identity(proto as object)}`;
+    out = `${brand}{${sortStrings(entries).join(",")}}`;
   }
   path.delete(value);
   return out;
