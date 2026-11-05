@@ -3,6 +3,7 @@ import type { Kernel } from "../core/kernel.js";
 import type { PluginContext, PluginDefinition, ServiceRef } from "../core/types.js";
 import { channelOf } from "./endpoint.js";
 import type { RpcEndpoint } from "./endpoint.js";
+import { createAbortController, startTimer, stopTimer } from "./platform.js";
 import { remoteError } from "./protocol.js";
 
 /**
@@ -50,18 +51,32 @@ export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: read
   };
 }
 
-/** An object whose every string-keyed member is an async method calling `target` remotely. */
-function remoteProxy(endpoint: RpcEndpoint, target: string): object {
+/**
+ * An object whose every string-keyed member is an async method calling `target` remotely. A
+ * remote method named `then` is unreachable: the proxy must not look like a thenable when it is
+ * awaited or returned from an async function. With `callTimeoutMs` each call is aborted (and the
+ * peer sent a `cancel`) when it has not settled in time.
+ */
+function remoteProxy(endpoint: RpcEndpoint, target: string, callTimeoutMs: number | undefined): object {
   const methods = new Map<string, (...args: unknown[]) => Promise<unknown>>();
+  const call = (method: string, args: unknown[]): Promise<unknown> => {
+    if (callTimeoutMs === undefined) return endpoint.call(target, method, args);
+    const controller = createAbortController();
+    const timer = startTimer(() => {
+      controller.abort();
+    }, callTimeoutMs);
+    return endpoint.call(target, method, args, controller.signal).finally(() => {
+      stopTimer(timer);
+    });
+  };
   return new Proxy(
     {},
     {
       get(_t, key) {
-        // `then` stays undefined so the proxy is not mistaken for a thenable when awaited.
         if (typeof key !== "string" || key === "then") return undefined;
         let method = methods.get(key);
         if (!method) {
-          method = (...args: unknown[]) => endpoint.call(target, key, args);
+          method = (...args: unknown[]) => call(key, args);
           methods.set(key, method);
         }
         return method;
@@ -76,6 +91,12 @@ export interface RemoteServicesOptions {
   readonly version?: string;
   readonly endpoint: RpcEndpoint;
   readonly refs: readonly ServiceRef<object>[];
+  /**
+   * Rejects a proxy call with RPC_CANCELLED, and sends the peer a `cancel`, when it has not settled
+   * within this many milliseconds. Default: no timeout (a call then ends with the peer's answer or
+   * with RPC_DISCONNECTED when the endpoint closes).
+   */
+  readonly callTimeoutMs?: number;
 }
 
 /**
@@ -84,13 +105,16 @@ export interface RemoteServicesOptions {
  * `endpoint.call(ref.id, method, args)`. For plugins whose endpoint only becomes available
  * inside setup (e.g. taken from `use(HostRef)` on the renderer side); protocol errors of the
  * endpoint go to `kernel.error` and the subscription is released when the plugin is disposed.
+ * `options.callTimeoutMs` bounds every call (see `RemoteServicesOptions`). A remote method
+ * named `then` cannot be called through the proxy.
  */
 export function provideRemoteServices(
   ctx: PluginContext,
   endpoint: RpcEndpoint,
   refs: readonly ServiceRef<object>[],
+  options: { readonly callTimeoutMs?: number } = {},
 ): void {
-  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
+  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id, options.callTimeoutMs));
   const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
     ctx.emit("kernel.error", error);
   });
@@ -101,16 +125,17 @@ export function provideRemoteServices(
  * A plugin that provides each ref as an async proxy to services exposed on the other side of
  * `endpoint` (see `exposeServices`): every method returns a Promise that performs
  * `endpoint.call(ref.id, method, args)`. As an ordinary provider it takes part in dependsOn
- * checks, winners and disposal; protocol errors of the endpoint go to `kernel.error`. Replaces the brief's `connectServices`, since a kernel only
- * accepts providers from plugins.
+ * checks, winners and disposal; protocol errors of the endpoint go to `kernel.error`. It
+ * exists because a kernel only accepts providers from plugins. Calls end with the peer's
+ * answer, with RPC_CANCELLED after `callTimeoutMs`, or with RPC_DISCONNECTED when the endpoint closes.
  */
 export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefinition {
-  const { id, version = "0.0.0", endpoint, refs } = options;
+  const { id, version = "0.0.0", endpoint, refs, callTimeoutMs } = options;
   return {
     id,
     version,
     setup(ctx) {
-      provideRemoteServices(ctx, endpoint, refs);
+      provideRemoteServices(ctx, endpoint, refs, callTimeoutMs === undefined ? {} : { callTimeoutMs });
     },
   };
 }

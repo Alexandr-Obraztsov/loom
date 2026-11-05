@@ -65,10 +65,16 @@ interface RemoteTap {
 }
 
 /**
- * Forwards one hook invocation to the tapping side and resolves with its tap-result. If the
- * tap-result does not arrive within `timeoutMs` (or the endpoint is or becomes closed), reports HOOK_TIMEOUT
- * (RPC_DISCONNECTED) naming the owner and continues with `next(ctx)`, or with the downstream
- * result if the remote side already called next.
+ * Forwards one hook invocation to the tapping side and resolves with its tap-result.
+ *
+ * If the tap-result does not arrive within `timeoutMs`, reports HOOK_TIMEOUT naming the owner;
+ * if the endpoint is or becomes closed, reports RPC_DISCONNECTED instead. Either way the run
+ * continues with `next(ctx)`, or with the downstream result if the remote side already called next.
+ *
+ * The timeout covers the whole remote tap, including the downstream work behind its `next()`
+ * (the remote fn may be fast and still be timed out by a slow downstream). A tap-result that
+ * arrives after the timeout is ignored. The remote fn cannot be cancelled: a tap function takes
+ * no signal, so a timed-out or disconnected invocation is simply abandoned on the tapping side.
  */
 function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Promise<unknown> {
   const { channel, internals, owner } = tap;
@@ -83,8 +89,6 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
   const id = channel.nextId();
   return new Promise<unknown>((resolve, reject) => {
     let downstream: Promise<unknown> | undefined;
-    // assigned after subscribing, so an immediate close callback cannot hit an uninitialized binding
-    const closeSub = { off: (): void => undefined };
     const callNext = (c: unknown): Promise<unknown> => {
       const result = Promise.resolve().then(() => next(c));
       downstream ??= result;
@@ -93,7 +97,7 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
     const finish = (): void => {
       stopTimer(timer);
       invocations.delete(id);
-      closeSub.off();
+      offClose();
     };
     const abandon = (error: LoomError): void => {
       finish();
@@ -104,7 +108,8 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
       const message = `Remote tap of "${owner}" on hook "${tap.hookId}" did not finish within ${String(tap.timeoutMs)} ms`;
       abandon(new LoomError("HOOK_TIMEOUT", message, { pluginIds: [owner] }));
     }, tap.timeoutMs);
-    closeSub.off = channel.onClose(() => {
+    // the channel is open here, so this callback never runs before `offClose` is assigned
+    const offClose = channel.onClose(() => {
       abandon(lost());
     });
     invocations.set(id, {
@@ -135,11 +140,11 @@ function tapOptions(req: TapRequest): TapOptions<unknown> {
 }
 
 /**
- * Lets the peer of `endpoint` tap `hooks` with `tapRemote`. Protocol errors of the endpoint are
- * reported to `kernel.error`. Each remote tap becomes a local tap
+ * Lets the peer of `endpoint` tap `hooks` with `tapRemote`. Each remote tap becomes a local tap
  * owned by `remote:<plugin id>` that forwards the context to the peer. Remote taps are removed
  * on untap, when the endpoint closes, and by the returned function (which also stops serving).
- * Only async hooks can be exposed; a sync hook throws TAP_FAILED.
+ * Protocol errors of the endpoint are reported to `kernel.error`. Only async hooks can be
+ * exposed; a sync hook throws TAP_FAILED.
  */
 export function exposeHooks(kernel: Kernel, endpoint: RpcEndpoint, hooks: readonly HookRef<unknown, unknown>[]): () => void {
   const channel = channelOf(endpoint);
@@ -161,6 +166,8 @@ export function exposeHooks(kernel: Kernel, endpoint: RpcEndpoint, hooks: readon
       if (method === "untap") untap(req.tapId);
       else if (method === "tap") {
         const tap: RemoteTap = { channel, internals, hookId: hook.id, owner: `remote:${req.owner}`, tapId: req.tapId, timeoutMs: req.timeoutMs };
+        // a peer reusing a tapId replaces its earlier tap instead of leaking it until close
+        untap(req.tapId);
         taps.set(req.tapId, internals.tap(hook, tap.owner, tapOptions(req), (ctx, next) => invoke(tap, ctx, next)));
       } else return Promise.reject(remoteError(`Unknown hook request "${method}"`));
       return Promise.resolve(undefined);

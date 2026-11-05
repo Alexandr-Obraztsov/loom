@@ -9,6 +9,7 @@ import type { MemoryTransport } from "../../src/rpc/memory-transport.js";
 import type { RpcMessage } from "../../src/rpc/protocol.js";
 import { exposeServices, provideRemoteServices, remoteServicesPlugin } from "../../src/rpc/remote-services.js";
 import { rejection } from "../core/kernel-helpers.js";
+import { collectingUncaught } from "./uncaught.js";
 
 interface Greeter {
   greet(name: string): string;
@@ -142,9 +143,12 @@ describe("provideRemoteServices", () => {
     expect(errors).toHaveLength(1);
     expect((errors[0] as { code: string }).code).toBe("RPC_REMOTE_ERROR");
     await win.dispose();
-    feed.send("junk" as unknown as RpcMessage);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    const uncaught = await collectingUncaught(async () => {
+      feed.send("junk" as unknown as RpcMessage);
+      await Promise.resolve();
+    });
     expect(errors).toHaveLength(1);
+    expect(uncaught).toHaveLength(1);
   });
 });
 

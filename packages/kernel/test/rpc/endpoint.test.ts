@@ -92,7 +92,8 @@ describe("rpc endpoint cancellation and close", () => {
     // the peer ignores cancel and answers anyway: the answer must not resurrect the call
     const [tc, td] = createMemoryTransportPair();
     const c = createRpcEndpoint(tc);
-    td.onMessage((msg) => {
+    td.onMessage((raw) => {
+      const msg = raw as RpcMessage;
       if (msg.type !== "call") return;
       microtask(() => {
         td.send({ type: "result", id: msg.id, value: "late" });

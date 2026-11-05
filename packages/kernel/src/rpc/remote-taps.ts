@@ -1,8 +1,8 @@
 import { LoomError } from "../core/errors.js";
 import type { HookRef, Next, PluginContext, TapOptions } from "../core/types.js";
-import { channelOf, disconnected } from "./endpoint.js";
+import { channelOf } from "./endpoint.js";
 import type { RpcChannel, RpcEndpoint } from "./endpoint.js";
-import { DEFAULT_TAP_TIMEOUT_MS, deserializeError, describe, hookTarget, remoteError } from "./protocol.js";
+import { DEFAULT_TAP_TIMEOUT_MS, deserializeError, describe, disconnected, hookTarget, remoteError } from "./protocol.js";
 import type { TapMessage, TapRequest } from "./protocol.js";
 import { settleOutcome } from "./remote-hooks.js";
 

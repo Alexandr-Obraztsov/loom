@@ -1,5 +1,5 @@
 import { clone, microtask } from "./platform.js";
-import type { RpcMessage, Transport } from "./protocol.js";
+import type { Transport } from "./protocol.js";
 
 export interface MemoryTransport extends Transport {
   /** Closes both ends: close listeners of both run synchronously; queued messages are dropped. */
@@ -7,7 +7,7 @@ export interface MemoryTransport extends Transport {
 }
 
 interface Side {
-  readonly messages: Set<(msg: RpcMessage) => void>;
+  readonly messages: Set<(message: unknown) => void>;
   readonly closes: Set<() => void>;
 }
 
