@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
-import { HostRef } from "@loom/host";
 import { createKernel, createRpcEndpoint } from "@loom/kernel";
+import { HostRef } from "@loom/sdk";
 import { KernelProvider, RenderRoot } from "@loom/react";
 import config from "../../../../builds/minimal/loom.config.json";
 import { plugins } from "virtual:loom/renderer-plugins";

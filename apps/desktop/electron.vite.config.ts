@@ -11,10 +11,9 @@ const buildDir = here("../../builds/minimal");
 const alias = {
   "@loom/kernel": here("../../packages/kernel/src/index.ts"),
   "@loom/sdk": here("../../packages/sdk/src/index.ts"),
-  "@loom/host": here("../../packages/host/src/index.ts"),
   "@loom/react": here("../../packages/react/src/index.ts"),
 };
-const bundled = ["@loom/kernel", "@loom/sdk", "@loom/host", "@loom/react", "@loom/plugin-acp"];
+const bundled = ["@loom/kernel", "@loom/sdk", "@loom/react", "@loom/plugin-acp"];
 
 const config: UserConfig = defineConfig({
   main: {

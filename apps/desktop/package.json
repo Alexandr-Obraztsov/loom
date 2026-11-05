@@ -14,7 +14,6 @@
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "0.100.0",
     "@loom/build-minimal": "workspace:*",
-    "@loom/host": "workspace:*",
     "@loom/kernel": "workspace:*",
     "@loom/plugin-acp": "workspace:*",
     "@loom/react": "workspace:*",

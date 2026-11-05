@@ -76,6 +76,20 @@ export interface HookRef<C, R> {
     readonly mode: "sync" | "async";
 }
 
+// @public
+export interface Host {
+    // (undocumented)
+    readonly dataDir: string;
+    readonly endpoint: RpcEndpoint;
+    // (undocumented)
+    readonly process: "main" | "renderer";
+    // (undocumented)
+    readonly projectDir: string;
+}
+
+// @public
+export const HostRef: ServiceRef<Host>;
+
 // @public (undocumented)
 export interface InputSpec {
     // (undocumented)

@@ -54,7 +54,7 @@ export const boundariesConfig = {
     },
     "boundaries/files": [
       { pattern: "packages/kernel/src/index.ts", category: "kernel-entry" },
-      { pattern: "packages/{sdk,host,react}/src/index.ts", category: "package-entry" },
+      { pattern: "packages/{sdk,react}/src/index.ts", category: "package-entry" },
       { pattern: "plugins/*/src/{api,index}.ts", category: "plugin-entry" },
     ],
     "boundaries/elements": [
@@ -63,11 +63,9 @@ export const boundariesConfig = {
       { type: "kernel-node", pattern: "packages/kernel/src/node/**", partialMatch: false },
       { type: "kernel-other", pattern: "packages/kernel/src/**", partialMatch: false },
       { type: "sdk", pattern: "packages/sdk/src/**", partialMatch: false },
-      { type: "host", pattern: "packages/host/src/**", partialMatch: false },
       { type: "kernel-test", pattern: "packages/kernel/test/**", partialMatch: false },
       { type: "kernel-bench", pattern: "packages/kernel/bench/**", partialMatch: false },
       { type: "sdk-test", pattern: "packages/sdk/test/**", partialMatch: false },
-      { type: "host-test", pattern: "packages/host/test/**", partialMatch: false },
       { type: "react-pkg", pattern: "packages/react/src/**", partialMatch: false },
       { type: "react-test", pattern: "packages/react/test/**", partialMatch: false },
       { type: "plugin", pattern: "plugins/*/src/**", partialMatch: false, capture: ["plugin"] },
@@ -97,7 +95,6 @@ export const boundariesConfig = {
           },
           { from: { element: { type: "kernel-other" } }, allow: allowTo(...KERNEL_ELEMENTS) },
           { from: { element: { type: "sdk" } }, allow: [allowTo("sdk"), ENTRY] },
-          { from: { element: { type: "host" } }, allow: [allowTo("host"), ENTRY] },
           {
             from: { element: { type: "kernel-test" } },
             allow: allowTo(...KERNEL_ELEMENTS, "kernel-test"),
@@ -109,10 +106,6 @@ export const boundariesConfig = {
           {
             from: { element: { type: "sdk-test" } },
             allow: [allowTo("sdk", "sdk-test"), ENTRY],
-          },
-          {
-            from: { element: { type: "host-test" } },
-            allow: [allowTo("host", "host-test"), ENTRY],
           },
           { from: { element: { type: "react-pkg" } }, allow: [allowTo("react-pkg"), ENTRY] },
           {
@@ -139,11 +132,33 @@ export const boundariesConfig = {
   },
 };
 
+const PLUGIN_AND_APP_NAMES = ["@loom/plugin-*", "@loom/desktop"];
+const NO_UPWARD_IMPORTS = {
+  group: PLUGIN_AND_APP_NAMES,
+  message: "Packages must not import plugins or apps.",
+};
+const SDK_PATH = { name: "@loom/sdk", message: "Kernel must not depend on the SDK." };
+const PLATFORM_GLOBALS = ["process", "Buffer"].map((name) => ({
+  name,
+  message: "Node globals are not allowed here; keep this layer platform-neutral.",
+}));
+
 export const platformNeutralConfigs = [
   {
     files: ["packages/kernel/src/rpc/**/*.ts"],
     rules: {
-      "no-restricted-imports": ["error", { paths: BUILTIN_PATHS, patterns: BUILTIN_PATTERNS }],
+      "no-restricted-imports": [
+        "error",
+        { paths: [...BUILTIN_PATHS, SDK_PATH], patterns: [...BUILTIN_PATTERNS, NO_UPWARD_IMPORTS] },
+      ],
+      "no-restricted-globals": ["error", ...PLATFORM_GLOBALS],
+    },
+  },
+  {
+    // Node built-ins are fine here; the SDK is a facade over the kernel, never the other way round
+    files: ["packages/kernel/src/node/**/*.ts"],
+    rules: {
+      "no-restricted-imports": ["error", { paths: [SDK_PATH], patterns: [NO_UPWARD_IMPORTS] }],
     },
   },
   {
@@ -156,10 +171,11 @@ export const platformNeutralConfigs = [
             ...BUILTIN_PATHS,
             { name: "electron", message: "Core must not depend on electron." },
             { name: "react", message: "Core must not depend on react." },
-            { name: "@loom/sdk", message: "Kernel must not depend on the SDK." },
+            SDK_PATH,
           ],
           patterns: [
             ...BUILTIN_PATTERNS,
+            NO_UPWARD_IMPORTS,
             {
               group: ["electron/*", "react/*", "react-dom", "react-dom/*"],
               message: "Core must not depend on UI or shell libraries.",
@@ -167,11 +183,11 @@ export const platformNeutralConfigs = [
           ],
         },
       ],
+      "no-restricted-globals": ["error", ...PLATFORM_GLOBALS],
     },
   },
 ];
 
-const PLUGIN_AND_APP_NAMES = ["@loom/plugin-*", "@loom/desktop"];
 const PLUGIN_SOURCE = ["plugins/*/src/**/*.{ts,tsx}"];
 const PLUGIN_MAIN = ["plugins/*/src/main*.{ts,tsx}", "plugins/*/src/main/**/*.{ts,tsx}"];
 
@@ -192,9 +208,7 @@ export const workspaceConfigs = [
       "no-restricted-imports": [
         "error",
         {
-          patterns: [
-            { group: PLUGIN_AND_APP_NAMES, message: "Packages must not import plugins or apps." },
-          ],
+          patterns: [NO_UPWARD_IMPORTS],
         },
       ],
     },

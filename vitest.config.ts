@@ -6,7 +6,6 @@ const src = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url)
 const alias = {
   "@loom/kernel": src("packages/kernel/src/index.ts"),
   "@loom/sdk": src("packages/sdk/src/index.ts"),
-  "@loom/host": src("packages/host/src/index.ts"),
   "@loom/react": src("packages/react/src/index.ts"),
 };
 const threshold = { statements: 95, branches: 95, functions: 95, lines: 95 };
@@ -31,14 +30,6 @@ export default defineConfig({
         test: {
           name: "sdk",
           include: ["packages/sdk/test/**/*.test.ts"],
-          benchmark: { include: [] },
-        },
-      },
-      {
-        resolve: { alias },
-        test: {
-          name: "host",
-          include: ["packages/host/test/**/*.test.ts"],
           benchmark: { include: [] },
         },
       },
@@ -86,7 +77,6 @@ export default defineConfig({
       thresholds: {
         "packages/kernel/src/**": threshold,
         "packages/sdk/src/**": threshold,
-        "packages/host/src/**": threshold,
         "packages/react/src/**": threshold,
         // aggregated over all plugins (vitest thresholds are per glob, not per matched directory)
         "plugins/*/src/**": threshold,

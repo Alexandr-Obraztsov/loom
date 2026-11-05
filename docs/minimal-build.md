@@ -31,7 +31,7 @@ pnpm --filter @loom/desktop dev
 1. Сборка — пакет `builds/minimal`; его `loom.plugins` перечисляет плагины по порядку.
 2. Vite-плагин `apps/desktop/vite/loom-build.ts` отдаёт виртуальные модули `virtual:loom/main-plugins` и `virtual:loom/renderer-plugins`: исходники `loom.main` / `loom.renderer` каждого плагина.
 3. Ядро (`@loom/kernel`) поднимается и в main, и в renderer; каждое загружает свои плагины.
-4. Хост-сервис `@loom/host` даёт плагинам `process`, `projectDir`, `dataDir` и RPC-эндпоинт.
+4. Хост-сервис `HostRef` из `@loom/sdk` даёт плагинам `process`, `projectDir`, `dataDir` и RPC-эндпоинт.
 5. Между процессами сервисы ходят по RPC через `MessagePort`: main создаёт канал и передаёт порт окну (`loom:port`), renderer получает прокси сервисов main.
 
 ## Тестовые хуки

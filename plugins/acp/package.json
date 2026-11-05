@@ -17,7 +17,6 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.4.0",
-    "@loom/host": "workspace:*",
     "@loom/sdk": "workspace:*"
   }
 }

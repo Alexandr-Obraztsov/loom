@@ -1,4 +1,5 @@
-type Disposer = () => void | Promise<void>;
+/** One cleanup step of a `DisposableStore`; may be async. */
+export type Disposer = () => void | Promise<void>;
 
 export interface DisposableStoreOptions {
   readonly onError?: (error: unknown) => void;

@@ -65,9 +65,6 @@ importers:
       '@loom/build-minimal':
         specifier: workspace:*
         version: link:../../builds/minimal
-      '@loom/host':
-        specifier: workspace:*
-        version: link:../../packages/host
       '@loom/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
@@ -136,12 +133,6 @@ importers:
         specifier: workspace:*
         version: link:../../plugins/storage
 
-  packages/host:
-    dependencies:
-      '@loom/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-
   packages/kernel:
     dependencies:
       semver:
@@ -151,6 +142,9 @@ importers:
         specifier: ^4.6.7
         version: 4.6.7
     devDependencies:
+      '@microsoft/api-extractor':
+        specifier: ^7.60.1
+        version: 7.60.1(@types/node@26.6.6)
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -198,9 +192,6 @@ importers:
       '@agentclientprotocol/sdk':
         specifier: 2.4.0
         version: 2.4.0(zod@4.6.7)
-      '@loom/host':
-        specifier: workspace:*
-        version: link:../../packages/host
       '@loom/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
@@ -235,9 +226,6 @@ importers:
 
   plugins/chat:
     dependencies:
-      '@loom/host':
-        specifier: workspace:*
-        version: link:../../packages/host
       '@loom/plugin-acp':
         specifier: workspace:*
         version: link:../acp
@@ -349,9 +337,6 @@ importers:
 
   plugins/storage:
     dependencies:
-      '@loom/host':
-        specifier: workspace:*
-        version: link:../../packages/host
       '@loom/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

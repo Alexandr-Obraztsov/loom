@@ -7,7 +7,7 @@ import { createPluginsService, PluginsRef } from "./plugins-service.js";
 import type { CatalogChange, CatalogEntry } from "./plugins-service.js";
 import type { ReconcileDiff } from "./reconcile.js";
 import type { TreeResult } from "./tree.js";
-import type { PluginDefinition, ServiceRef } from "./types.js";
+import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
 
 export { KERNEL_ID };
 export type { KernelConfig, KernelOptions };
@@ -30,7 +30,8 @@ export interface Kernel {
   readonly plugins: readonly PluginDefinition[];
   readonly tree: TreeResult;
   readonly services: KernelServices;
-  run: HookRegistry["run"];
+  /** Runs `hook` through its taps, ending in `fallback`; the same entry point the plugin context uses. */
+  run<C, R>(hook: HookRef<C, R>, ctx: C, fallback: (ctx: C) => R): R;
   /** Subscribes as the kernel owner; returns an unsubscribe function. */
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-parameters -- payload type is the caller's contract
   on<P>(type: string, listener: (payload: P) => void): () => void;

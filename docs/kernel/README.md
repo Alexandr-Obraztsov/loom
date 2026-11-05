@@ -225,7 +225,7 @@ const kernel = createKernel({ hostServices: [[HostRef, host]] });
 
 Каждая пара `[ref, impl]` предоставляется владельцем ядра до первой сверки, как `PluginsRef`:
 любой плагин делает `ctx.use(ref)` без `dependsOn`. Сервисы переживают `reconcile`, откаты и
-`setConfig`; после `dispose` обращение к ним даёт `DISPOSED`. Пакет `@loom/host` описывает
+`setConfig`; после `dispose` обращение к ним даёт `DISPOSED`. `@loom/sdk` экспортирует
 `HostRef` (`id: "host"`) и интерфейс `Host` (`process`, `projectDir`, `dataDir`, `endpoint`).
 
 ## Загрузчик (`@loom/kernel/node`)

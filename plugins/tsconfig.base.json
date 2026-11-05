@@ -7,7 +7,6 @@
     "paths": {
       "@loom/kernel": ["../packages/kernel/src/index.ts"],
       "@loom/sdk": ["../packages/sdk/src/index.ts"],
-      "@loom/host": ["../packages/host/src/index.ts"],
       "@loom/react": ["../packages/react/src/index.ts"]
     }
   }

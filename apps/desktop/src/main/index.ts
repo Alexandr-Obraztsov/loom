@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain } from "electron";
-import { HostRef } from "@loom/host";
 import { createKernel } from "@loom/kernel";
+import { HostRef } from "@loom/sdk";
 import type { Kernel } from "@loom/kernel";
 import config from "../../../../builds/minimal/loom.config.json";
 import { plugins } from "virtual:loom/main-plugins";

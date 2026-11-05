@@ -1,5 +1,4 @@
-import { HostRef } from "@loom/host";
-import { definePlugin, provideRemoteServices } from "@loom/sdk";
+import { HostRef, definePlugin, provideRemoteServices } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
 import { AgentRegistryRef, SessionsRef } from "./api.js";
 

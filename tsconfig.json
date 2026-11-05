@@ -1,5 +1,14 @@
 {
   "extends": "./tsconfig.base.json",
-  "compilerOptions": { "types": ["node"], "allowJs": true },
+  "compilerOptions": {
+    "types": ["node"],
+    "allowJs": true,
+    // also what dependency-cruiser resolves workspace imports with: every package to its source
+    "paths": {
+      "@loom/kernel": ["./packages/kernel/src/index.ts"],
+      "@loom/sdk": ["./packages/sdk/src/index.ts"],
+      "@loom/react": ["./packages/react/src/index.ts"]
+    }
+  },
   "include": ["*.config.ts", "eslint.config.js", "eslint.rules.js", "tools/*.mjs"]
 }

@@ -15,7 +15,6 @@
     "bench": "echo \"no benchmarks yet\""
   },
   "dependencies": {
-    "@loom/host": "workspace:*",
     "@loom/plugin-acp": "workspace:*",
     "@loom/react": "workspace:*",
     "@loom/sdk": "workspace:*"

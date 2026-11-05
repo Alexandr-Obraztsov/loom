@@ -1,5 +1,4 @@
-import { HostRef } from "@loom/host";
-import { definePlugin } from "@loom/sdk";
+import { HostRef, definePlugin } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
 import { StorageRef } from "./api.js";
 import { createStorage } from "./main/storage.js";

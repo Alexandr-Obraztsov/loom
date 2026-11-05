@@ -1,7 +1,8 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { validatePlugin } from "@loom/kernel";
 import { describe, expect, it } from "vitest";
+// validatePlugin is not part of the kernel's public API; this repo check reaches in for it on purpose
+import { validatePlugin } from "../../../packages/kernel/src/core/manifest.js";
 import { createTurnGuard } from "../src/main/turn-guard.js";
 import { pluginEntries } from "../vite/loom-build.js";
 

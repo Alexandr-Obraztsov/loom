@@ -8,10 +8,6 @@
       "entry": ["src/index.ts", "src/node/index.ts", "test/**/*.test.ts", "bench/**/*.bench.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "bench/**/*.ts"]
     },
-    "packages/host": {
-      "entry": ["src/index.ts", "test/**/*.test.ts"],
-      "project": ["src/**/*.ts", "test/**/*.ts"]
-    },
     "packages/sdk": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]

@@ -11,8 +11,7 @@ import {
   exposeServices,
 } from "@loom/kernel";
 import type { Kernel } from "@loom/kernel";
-import { HostRef } from "@loom/host";
-import { definePlugin } from "@loom/sdk";
+import { HostRef, definePlugin } from "@loom/sdk";
 import acp from "../src/main.js";
 import acpRenderer from "../src/renderer.js";
 import { AgentRegistryRef, SessionsRef } from "../src/api.js";

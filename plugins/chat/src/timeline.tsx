@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { ReactNode, Ref, UIEvent } from "react";
-import { HostRef } from "@loom/host";
 import { SessionsRef } from "@loom/plugin-acp";
 import type { SessionSnapshot, Sessions } from "@loom/plugin-acp";
-import { createServiceRef } from "@loom/sdk";
+import { HostRef, createServiceRef } from "@loom/sdk";
 import type { ResolvedNode, ServiceRef } from "@loom/sdk";
 import { Render, useHookRunner, useService } from "@loom/react";
 import { RenderItemHook } from "./api.js";
