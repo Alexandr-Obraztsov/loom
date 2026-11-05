@@ -110,7 +110,7 @@ describe("service registry", () => {
   });
 });
 
-describe("service registry (cont.)", () => {
+describe("service registry: live proxies", () => {
   it("proxy obtained before override calls the override", () => {
     const r = make();
     r.provide(ref, impl("a"), "A");
@@ -147,7 +147,7 @@ describe("service registry (cont.)", () => {
   });
 });
 
-describe("service registry (cont.)", () => {
+describe("service registry: access and removeOwner", () => {
   it("use of service whose provider is not in allowed throws UNDECLARED_DEPENDENCY", () => {
     const r = make();
     r.provide(ref, impl("a"), "A");
@@ -192,8 +192,8 @@ describe("service registry (cont.)", () => {
   });
 });
 
-describe("service registry (cont.)", () => {
-  it("onChange fires with ref id on every activation change", () => {
+describe("service registry: onChange", () => {
+  it("onChange fires with ref id on every change of the active implementation", () => {
     const r = make();
     const seen: string[] = [];
     const off = r.onChange((id) => seen.push(id));
@@ -201,11 +201,11 @@ describe("service registry (cont.)", () => {
     r.override(ref, impl("o"), "O");
     const rd = r.decorate(ref, (p) => p, "D");
     rd();
-    rm();
-    expect(seen).toEqual(["greeter", "greeter", "greeter", "greeter", "greeter"]);
+    rm(); // the override is active, so removing the provider changes nothing
+    expect(seen).toEqual(["greeter", "greeter", "greeter", "greeter"]);
     off();
     r.provide(ref, impl("b"), "B");
-    expect(seen).toHaveLength(5);
+    expect(seen).toHaveLength(4);
   });
 
   it("rejected registration does not fire onChange", () => {
@@ -248,7 +248,7 @@ describe("service registry (cont.)", () => {
   });
 });
 
-describe("service registry (cont.)", () => {
+describe("service registry: proxy forwarding", () => {
   it("methods are bound: destructured method keeps this", () => {
     const r = make();
     class Counter {
