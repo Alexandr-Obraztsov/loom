@@ -8,6 +8,21 @@ import { loadPluginsFromDirs } from "../../src/node/loader.js";
 
 let root: string;
 
+/** Symlinks need privileges on Windows (EPERM); probe once and skip the symlink tests where unavailable. */
+async function canSymlink(): Promise<boolean> {
+  if (process.platform === "win32") return false;
+  const probe = await mkdtemp(join(tmpdir(), "loom-symlink-probe-"));
+  try {
+    await symlink(probe, join(probe, "l"), "dir");
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe, { recursive: true, force: true });
+  }
+}
+const symlinksWork = await canSymlink();
+
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "loom-loader-"));
 });
@@ -122,7 +137,6 @@ describe("loadPluginsFromDirs", () => {
     const result = await loadPluginsFromDirs([group("g1"), group("g2")], { entry: "main" });
     expect(result.plugins.map((p) => p.definition.id)).toEqual(["b", "z", "a"]);
   });
-
 });
 
 describe("loadPluginsFromDirs error handling", () => {
@@ -196,11 +210,10 @@ describe("loadPluginsFromDirs error handling", () => {
     const result = await loadPluginsFromDirs([group("g")], { entry: "renderer" });
     expect(result.plugins[0]?.definition.version).toBe("2.0.0");
   });
-
 });
 
 describe("loadPluginsFromDirs symlinks and edge cases", () => {
-  it("symlinked package directory is loaded", async () => {
+  it.skipIf(!symlinksWork)("symlinked package directory is loaded", async () => {
     const target = await writePkg("store", "real", { loom: { id: "real", main: "m.mjs" }, files: { "m.mjs": def("real") } });
     await mkdir(join(root, "g"));
     await symlink(target, join(root, "g", "linked"), "dir");
@@ -209,7 +222,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(result.plugins.map((p) => p.definition.id)).toEqual(["real"]);
   });
 
-  it("broken symlink is reported as a failure", async () => {
+  it.skipIf(!symlinksWork)("broken symlink is reported as a failure", async () => {
     await mkdir(join(root, "g"));
     await symlink(join(root, "nowhere"), join(root, "g", "dead"), "dir");
     await writeFile(join(root, "target.txt"), "x");
@@ -237,13 +250,46 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(result.plugins).toHaveLength(1);
   });
 
-  it("empty entry string and promise default export are failures", async () => {
-    await writePkg("g", "empty", { loom: { id: "empty", main: "" } });
-    await writePkg("g", "prom", {
-      loom: { id: "prom", main: "m.mjs" },
-      files: { "m.mjs": 'export default Promise.resolve({ id: "prom", version: "1.0.0" });' },
-    });
+  it("accepts an entry starting with .. and rejects ../x.js", async () => {
+    await writePkg("g", "ok", { loom: { id: "ok", main: "..hidden/main.js" }, files: { "..hidden/main.js": def("ok") } });
+    await writePkg("g", "up", { loom: { id: "up", main: "../x.js" }, files: { "../x.js": def("up") } });
     const result = await loadPluginsFromDirs([group("g")], { entry: "main" });
-    expect(result.failures.map((f) => (f.error.details as { phase: string }).phase)).toEqual(["package-json", "import"]);
+    expect(result.plugins.map((p) => p.definition.id)).toEqual(["ok"]);
+    expect(failureOf(result).details).toMatchObject({ phase: "package-json", entry: "../x.js" });
+  });
+
+  it("an empty entry string is MANIFEST_INVALID, not a silent skip", async () => {
+    await writePkg("g", "empty", { loom: { id: "empty", main: "" } });
+    const result = await loadPluginsFromDirs([group("g")], { entry: "main" });
+    expect(result.plugins).toEqual([]);
+    expect(failureOf(result).code).toBe("MANIFEST_INVALID");
+    expect(failureOf(result).message).toContain("non-empty string");
+  });
+
+  it("a Promise default export says to export the definition itself", async () => {
+    const src = 'export default Promise.resolve({ id: "prom", version: "1.0.0" });';
+    await writePkg("g", "prom", { loom: { id: "prom", main: "m.mjs" }, files: { "m.mjs": src } });
+    const error = failureOf(await loadPluginsFromDirs([group("g")], { entry: "main" }));
+    expect(error.code).toBe("MANIFEST_INVALID");
+    expect(error.message).toContain("default export is a Promise; export the plugin definition itself");
+  });
+
+  it("a non-Error throw inside validation still becomes a validate failure", async () => {
+    const src = 'export default { id: "a", version: "1.0.0", extensions: [{ get id() { throw "plain"; }, factory() {} }] };';
+    await writePkg("g", "a", { loom: { id: "a", main: "m.mjs" }, files: { "m.mjs": src } });
+    const error = failureOf(await loadPluginsFromDirs([group("g")], { entry: "main" }));
+    expect(error.code).toBe("MANIFEST_INVALID");
+    expect(error.details).toMatchObject({ phase: "validate" });
+    expect(error.cause).toBe("plain");
+  });
+
+  it.skipIf(!symlinksWork)("one package linked under two names loads once (by realpath)", async () => {
+    const target = await writePkg("store", "real", { loom: { id: "real", main: "m.mjs" }, files: { "m.mjs": def("real") } });
+    await mkdir(join(root, "g"));
+    await symlink(target, join(root, "g", "a-link"), "dir");
+    await symlink(target, join(root, "g", "b-link"), "dir");
+    const result = await loadPluginsFromDirs([group("g"), group("store")], { entry: "main" });
+    expect(result.failures).toEqual([]);
+    expect(result.plugins.map((p) => p.dir)).toEqual([join(root, "g", "a-link")]);
   });
 });

@@ -1,5 +1,5 @@
 /// <reference types="node" />
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { LoomError } from "../core/errors.js";
@@ -85,7 +85,11 @@ async function importDefinition(entry: string, cacheBust: boolean): Promise<Reco
     const mod = (await import(/* @vite-ignore */ url.href)) as { default?: unknown };
     const exported = mod.default;
     if (isRecord(exported) && typeof exported["then"] !== "function") return exported;
+    if (exported instanceof Promise) {
+      throw fail("import", `${entry}: default export is a Promise; export the plugin definition itself`, { entry });
+    }
   } catch (cause) {
+    if (cause instanceof LoomError) throw cause;
     throw fail("import", `Failed to import ${entry}`, { entry }, cause);
   }
   throw fail("import", `${entry} must have an object as its default export`, { entry });
@@ -95,11 +99,13 @@ function validate(candidate: unknown): PluginDefinition {
   try {
     return validatePlugin(candidate);
   } catch (cause) {
-    // validatePlugin only throws LoomError with details.issues; anything else is attributed by the caller.
-    const error = cause as LoomError;
-    throw new LoomError("MANIFEST_INVALID", error.message, {
-      pluginIds: error.pluginIds,
-      details: { phase: "validate", issues: (error.details as { issues: unknown }).issues },
+    // validatePlugin throws a LoomError with details.issues; check instead of trusting it, and
+    // attribute anything else (a throwing getter reached during parsing) with the original as cause.
+    const known = cause instanceof LoomError;
+    const issues = known && isRecord(cause.details) ? cause.details["issues"] : undefined;
+    throw new LoomError("MANIFEST_INVALID", cause instanceof Error ? cause.message : `Invalid plugin definition: ${String(cause)}`, {
+      pluginIds: known ? cause.pluginIds : [],
+      details: { phase: "validate", ...(issues === undefined ? {} : { issues }) },
       cause,
     });
   }
@@ -155,6 +161,8 @@ async function listPackageDirs(path: string): Promise<Candidate[]> {
  * directories are followed; broken links are failures.
  * Entry containment is lexical (a typo guard, not a sandbox: symlinks inside a package are
  * not resolved). `cacheBust` versions only the entry file, not modules it imports.
+ * A package reachable through several paths (symlinks, overlapping groups) loads once, by
+ * `realpath`, under the first path in group order.
  */
 export async function loadPluginsFromDirs(
   dirs: readonly { path: string }[],
@@ -162,6 +170,7 @@ export async function loadPluginsFromDirs(
 ): Promise<LoadResult> {
   const plugins: LoadedPlugin[] = [];
   const failures: LoadFailure[] = [];
+  const seen = new Set<string>();
   for (const group of dirs) {
     let names: Candidate[];
     try {
@@ -176,6 +185,9 @@ export async function loadPluginsFromDirs(
       const dir = join(group.path, name);
       try {
         if (listError) throw listError;
+        const real = await realpath(dir);
+        if (seen.has(real)) continue;
+        seen.add(real);
         const outcome = await loadPackage(dir, opts);
         if ("plugin" in outcome) plugins.push(outcome.plugin);
       } catch (error) {
