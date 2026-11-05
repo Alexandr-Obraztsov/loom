@@ -22,7 +22,6 @@ function make(spies: Record<string, ReturnType<typeof vi.fn>>): { defs: Record<s
 }
 
 describe("buildTree structural sharing", () => {
-
   it("unchanged build reuses previous node objects, skips factories and returns the previous result", () => {
     const spies: Record<string, ReturnType<typeof vi.fn>> = {};
     const { entries } = make(spies);
@@ -97,7 +96,7 @@ describe("buildTree sharing edge cases", () => {
   });
 
   it("ignores a previous result that was not produced by buildTree", () => {
-    const fake: TreeResult = { root: { id: "app", pluginId: "p", value: 1, inputs: {} }, orphans: [], errors: [] };
+    const fake: TreeResult = { root: { id: "app", pluginId: "p", value: 1, inputs: {}, errors: [] }, orphans: [], errors: [] };
     const r = buildTree([e("p", ext("app"))], {}, use, fake);
     expect(r.root?.value).toBe("app");
     expect(r).not.toBe(fake);
@@ -108,8 +107,8 @@ describe("buildTree sharing edge cases", () => {
     const mkApp = (schema: z.ZodType): Entry[] => [e("p", ext("app", { inputs: { s: { schema } } })), e("p", leafDef)];
     const first = buildTree(mkApp(z.number()), {}, use);
     const second = buildTree(mkApp(z.string()), {}, use, first);
-    expect((first.root?.inputs["s"] as ResolvedNode).error).toBeUndefined();
-    expect((second.root?.inputs["s"] as ResolvedNode).error?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect((first.root?.inputs["s"] as ResolvedNode).errors).toEqual([]);
+    expect((second.root?.inputs["s"] as ResolvedNode).errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
 });
 

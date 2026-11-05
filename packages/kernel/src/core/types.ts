@@ -35,7 +35,8 @@ export interface ResolvedNode<O = unknown> {
   readonly pluginId: string;
   readonly value: O | undefined;
   readonly inputs: Readonly<Record<string, ResolvedNode | readonly ResolvedNode[] | undefined>>;
-  readonly error?: LoomError;
+  /** Every error of this node, in the order found; empty when the node is healthy. */
+  readonly errors: readonly LoomError[];
 }
 
 export interface ExtensionContext<I> {

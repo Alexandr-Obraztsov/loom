@@ -195,8 +195,7 @@ export interface ReconcileDiff {
 
 // @public (undocumented)
 export interface ResolvedNode<O = unknown> {
-    // (undocumented)
-    readonly error?: LoomError;
+    readonly errors: readonly LoomError[];
     // (undocumented)
     readonly id: string;
     // (undocumented)

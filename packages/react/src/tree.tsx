@@ -63,7 +63,8 @@ type NodeComponent = ComponentType<{ node: ResolvedNode }>;
 export function Render(props: { node: ResolvedNode | undefined; fallback?: ReactNode }): ReactNode {
   const { node, fallback } = props;
   if (!node) return fallback ?? null;
-  if (node.error) return <Placeholder id={node.id} message={node.error.message} />;
+  const [error] = node.errors;
+  if (error) return <Placeholder id={node.id} message={error.message} />;
   const value = node.value as { component?: NodeComponent } | undefined;
   const View = value?.component;
   if (!View) return null;
