@@ -190,38 +190,7 @@ describe("reconcile ordering", () => {
 
 });
 
-describe("reconcile trust and results", () => {
-  it("untrusted project plugin is skipped and reported via kernel.error", async () => {
-    const log: string[] = [];
-    const errors: LoomError[] = [];
-    const denyBoom = new Error("trust store down");
-    const k = createKernel({
-      trust: (p) => {
-        if (p.id === "broken") throw denyBoom;
-        return Promise.resolve(p.id === "ok");
-      },
-    });
-    k.on<LoomError>("kernel.error", (e) => errors.push(e));
-    const ok = plugin(log, "ok", { scope: "project" });
-    const no = plugin(log, "no", { scope: "project" });
-    const broken = plugin(log, "broken", { scope: "project" });
-    const user = plugin(log, "user", { scope: "user" });
-    await k.reconcile([ok, no, broken, user]);
-    expect(ids(k.plugins)).toEqual(["ok", "user"]);
-    expect(errors.map((e) => [e.code, e.pluginIds])).toEqual([
-      ["UNTRUSTED", ["no"]],
-      ["UNTRUSTED", ["broken"]],
-    ]);
-    expect(errors[1]?.cause).toBe(denyBoom);
-
-    const strict = createKernel();
-    const strictErrors: LoomError[] = [];
-    strict.on<LoomError>("kernel.error", (e) => strictErrors.push(e));
-    await strict.reconcile([ok, user]);
-    expect(ids(strict.plugins)).toEqual(["user"]);
-    expect(strictErrors.map((e) => e.code)).toEqual(["UNTRUSTED"]);
-  });
-
+describe("reconcile results", () => {
   it("requiresRestart lists plugins whose startup changed", async () => {
     const log: string[] = [];
     const k = createKernel();

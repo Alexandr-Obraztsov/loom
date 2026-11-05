@@ -36,10 +36,7 @@ async function writePkg(group: string, name: string, opts: PkgOptions): Promise<
 const def = (id: string, version = "1.0.0", extra = ""): string =>
   `export default { id: "${id}", version: "${version}"${extra} };\n`;
 
-const group = (name: string, scope: "builtin" | "user" | "project" = "user"): { path: string; scope: "builtin" | "user" | "project" } => ({
-  path: join(root, name),
-  scope,
-});
+const group = (name: string): { path: string } => ({ path: join(root, name) });
 
 function failureOf(result: Awaited<ReturnType<typeof loadPluginsFromDirs>>, index = 0): LoomError {
   const failure = result.failures[index];
@@ -109,14 +106,13 @@ describe("loadPluginsFromDirs", () => {
     expect(second.plugins[0]?.definition.version).toBe("2.0.0");
   });
 
-  it("scope is taken from the directory group", async () => {
-    await writePkg("b", "a", { loom: { id: "a", main: "m.mjs" }, files: { "m.mjs": def("a", "1.0.0", ', scope: "project"') } });
-    await writePkg("p", "c", { loom: { id: "c", main: "m.mjs" }, files: { "m.mjs": def("c") } });
-    const result = await loadPluginsFromDirs([group("b", "builtin"), group("p", "project")], { entry: "main" });
-    expect(result.plugins.map((p) => [p.definition.id, p.definition.scope])).toEqual([
-      ["a", "builtin"],
-      ["c", "project"],
-    ]);
+  it("stamps nothing onto the definition and rejects a scope key as unknown", async () => {
+    await writePkg("b", "a", { loom: { id: "a", main: "m.mjs" }, files: { "m.mjs": def("a") } });
+    await writePkg("p", "c", { loom: { id: "c", main: "m.mjs" }, files: { "m.mjs": def("c", "1.0.0", ', scope: "project"') } });
+    const result = await loadPluginsFromDirs([group("b"), group("p")], { entry: "main" });
+    expect(result.plugins.map((p) => Object.keys(p.definition).sort())).toEqual([["id", "version"]]);
+    expect(failureOf(result).code).toBe("MANIFEST_INVALID");
+    expect(JSON.stringify(failureOf(result).details)).toContain("scope");
   });
 
   it("orders results by group, then directory name", async () => {

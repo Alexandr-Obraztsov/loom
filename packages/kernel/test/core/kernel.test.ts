@@ -3,11 +3,20 @@ import { createHook } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { createKernel, KERNEL_ID } from "../../src/core/kernel.js";
 import { KernelRuntime } from "../../src/core/kernel-runtime.js";
+import type { PluginContext } from "../../src/core/types.js";
 import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
 import { ids, must, plugin, refOf, rejection, thrown } from "./kernel-helpers.js";
 
 const hook = createHook<number, number>("k.hook", { mode: "sync" });
+
+/** A setup whose own listener throws: the kernel reports it through `kernel.error`. */
+function noisySetup(ctx: PluginContext): void {
+  ctx.on("ping", () => {
+    throw new Error("listener");
+  });
+  ctx.emit("ping", 1);
+}
 
 describe("kernel config", () => {
   it("setConfig with new disabled list rebuilds tree without re-running setup (spy)", async () => {
@@ -112,7 +121,7 @@ describe("kernel events and errors", () => {
     expect(k.run(hook, 2, (n) => n + 1)).toBe(5);
     expect(errors.map((e) => [e.code, e.pluginIds])).toEqual([["TAP_FAILED", ["a"]]]);
     off();
-    await k.reconcile([plugin(log, "a", { scope: "project" })]);
+    await k.reconcile([plugin(log, "a", { setup: noisySetup })]);
     expect(errors).toHaveLength(1);
     expect(KERNEL_ID).toBe("kernel");
   });
@@ -125,7 +134,7 @@ describe("kernel events and errors", () => {
       calls += 1;
       throw new Error("sink");
     });
-    await k.reconcile([plugin(log, "u", { scope: "project" })]);
+    await k.reconcile([plugin(log, "u", { setup: noisySetup })]);
     expect(calls).toBe(1);
   });
 
@@ -169,6 +178,8 @@ describe("kernel dispose and broken state", () => {
       await rejection(k.setConfig({})),
       await rejection(must(svc).install(a)),
       await rejection(must(svc).reload(a)),
+      await rejection(must(svc).enable("a")),
+      await rejection(must(svc).disable("a")),
       await rejection(must(svc).uninstall("a")),
       thrown(() => k.run(hook, 1, (n) => n)),
       thrown(() => k.on("x", () => undefined)),
@@ -260,5 +271,20 @@ describe("kernel services", () => {
     rt.events.on("e", KERNEL_ID, () => heard.push("kernel"));
     rt.events.emit("e", 0);
     expect(heard).toEqual(["kernel", "stranger"]);
+  });
+});
+
+describe("plugins service after dispose", () => {
+  it("reload after dispose returns a rejected promise instead of throwing", async () => {
+    const log: string[] = [];
+    const k = createKernel();
+    let svc: PluginsService | undefined;
+    const a = plugin(log, "a", { setup: (ctx) => void (svc = ctx.use(PluginsRef)) });
+    await k.reconcile([a]);
+    await k.dispose();
+    const service = must(svc);
+    let pending: Promise<unknown> | undefined;
+    expect(() => (pending = service.reload(a))).not.toThrow();
+    expect((await rejection(must(pending))).code).toBe("DISPOSED");
   });
 });

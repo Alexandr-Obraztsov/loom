@@ -14,6 +14,13 @@ describe("memoized semver predicates", () => {
     }
   });
 
+  it("reject a v prefix and an empty range, which semver itself accepts", () => {
+    expect(isVersion("v1.0.0")).toBe(false);
+    expect(isVersion("=1.0.0")).toBe(false);
+    expect(isRange("")).toBe(false);
+    expect(isRange("*")).toBe(true);
+  });
+
   it("stay correct after the bounded cache is dropped and refilled", () => {
     for (let i = 0; i < 5000; i++) expect(inRange(`1.0.${String(i)}`, "^1.0.0")).toBe(true);
     expect(inRange("1.0.1", "^2.0.0")).toBe(false);

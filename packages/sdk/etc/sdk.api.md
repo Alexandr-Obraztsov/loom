@@ -24,14 +24,6 @@ export function attach<O>(parentId: string, input: string, value: O & {
 }): ExtensionDefinition<O>;
 
 // @public (undocumented)
-export const BeforeInstallHook: HookRef<{
-    plugin: PluginDefinition;
-}, Promise<{
-    allow: boolean;
-    reason?: string;
-}>>;
-
-// @public (undocumented)
 export function createExtension<O>(def: ExtensionDefinition<O>): ExtensionDefinition<O>;
 
 // @public (undocumented)
@@ -106,7 +98,7 @@ export class LoomError extends Error {
 }
 
 // @public (undocumented)
-export type LoomErrorCode = "MANIFEST_INVALID" | "DEPENDENCY_MISSING" | "DEPENDENCY_VERSION" | "DEPENDENCY_CYCLE" | "UNTRUSTED" | "SERVICE_CONFLICT" | "SERVICE_MISSING" | "UNDECLARED_DEPENDENCY" | "EXTENSION_CONFLICT" | "EXTENSION_INPUT_MISMATCH" | "EXTENSION_FACTORY_FAILED" | "SETUP_FAILED" | "TAP_FAILED" | "HOOK_TIMEOUT" | "INSTALL_DENIED" | "RPC_DISCONNECTED" | "RPC_REMOTE_ERROR" | "RPC_CANCELLED" | "DISPOSED";
+export type LoomErrorCode = "MANIFEST_INVALID" | "DEPENDENCY_MISSING" | "DEPENDENCY_VERSION" | "DEPENDENCY_CYCLE" | "PLUGIN_UNKNOWN" | "SERVICE_CONFLICT" | "SERVICE_MISSING" | "UNDECLARED_DEPENDENCY" | "EXTENSION_CONFLICT" | "EXTENSION_INPUT_MISMATCH" | "EXTENSION_FACTORY_FAILED" | "SETUP_FAILED" | "TAP_FAILED" | "HOOK_TIMEOUT" | "RPC_DISCONNECTED" | "RPC_REMOTE_ERROR" | "RPC_CANCELLED" | "DISPOSED";
 
 // @public (undocumented)
 export interface LoomErrorOptions {
@@ -161,8 +153,6 @@ export interface PluginDefinition {
     optionalDependsOn?: Record<string, string>;
     // (undocumented)
     overrides?: readonly ExtensionDefinition[];
-    // (undocumented)
-    scope?: "builtin" | "user" | "project";
     // (undocumented)
     setup?(ctx: PluginContext): void | Promise<void>;
     // (undocumented)

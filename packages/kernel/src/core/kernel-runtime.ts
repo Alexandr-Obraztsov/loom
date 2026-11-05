@@ -24,8 +24,6 @@ export interface KernelOptions {
   /** Services provided by the kernel owner before the first reconcile; any plugin may `use` them without `dependsOn`. */
   hostServices?: readonly (readonly [ServiceRef<object>, object])[];
   config?: KernelConfig;
-  /** Decides whether a `scope: "project"` plugin may load. Without it, project plugins are untrusted. */
-  trust?(plugin: PluginDefinition): boolean | Promise<boolean>;
 }
 
 export interface PassRequest {
@@ -118,7 +116,7 @@ export class KernelRuntime {
    * for the pass (each touched hook is ordered once, before the outcome event is emitted).
    */
   async pass(req: PassRequest): Promise<ReconcileDiff> {
-    const desired = await this.trusted(req.desired.map((d) => validatePlugin(d)));
+    const desired = req.desired.map((d) => validatePlugin(d));
     const force = req.freshServices ? new Set(desired.map((d) => d.id)) : req.force;
     const plan = planReconcile(this.active, desired, force, req.config);
     const previous = { services: this.services, config: this.config };
@@ -191,26 +189,6 @@ export class KernelRuntime {
     });
     this.kernelServices(registry);
     return registry;
-  }
-
-  private async trusted(defs: readonly PluginDefinition[]): Promise<PluginDefinition[]> {
-    const out: PluginDefinition[] = [];
-    for (const def of defs) {
-      if (def.scope !== "project") {
-        out.push(def);
-        continue;
-      }
-      let failure: { cause: unknown } | undefined;
-      let ok = false;
-      try {
-        ok = (await this.options.trust?.(def)) === true;
-      } catch (cause) {
-        failure = { cause };
-      }
-      if (ok) out.push(def);
-      else this.report(new LoomError("UNTRUSTED", `Project plugin "${def.id}" is not trusted`, { pluginIds: [def.id], ...failure }));
-    }
-    return out;
   }
 
   private runtimeFor(plan: ReconcilePlan, previous: { services: ServiceRegistry; config: KernelConfig }): ReconcileRuntime {

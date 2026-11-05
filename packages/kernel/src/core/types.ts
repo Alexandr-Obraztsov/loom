@@ -72,7 +72,6 @@ export interface PluginContext {
 export interface PluginDefinition {
   id: string;
   version: string;
-  scope?: "builtin" | "user" | "project";
   dependsOn?: Record<string, string>;
   optionalDependsOn?: Record<string, string>;
   startup?: Record<string, unknown>;

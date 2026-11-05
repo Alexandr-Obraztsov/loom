@@ -86,7 +86,6 @@ async function start(): Promise<void> {
   const guard = createTurnGuard();
   const kernel = createKernel({
     config,
-    trust: () => true,
     hostServices: [
       [
         HostRef,

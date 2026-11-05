@@ -6,7 +6,6 @@ import { LoomError } from "../core/errors.js";
 import { validatePlugin } from "../core/manifest.js";
 import type { PluginDefinition } from "../core/types.js";
 
-type Scope = "builtin" | "user" | "project";
 type Phase = "dir" | "package-json" | "import" | "validate";
 
 export interface LoadedPlugin {
@@ -106,13 +105,13 @@ function validate(candidate: unknown): PluginDefinition {
   }
 }
 
-async function loadPackage(dir: string, scope: Scope, opts: LoadOptions): Promise<Outcome> {
+async function loadPackage(dir: string, opts: LoadOptions): Promise<Outcome> {
   const loom = readLoomField(await readManifest(dir), dir, opts.entry);
   if (!loom?.entry) return { skip: true };
   const entry = resolveEntry(dir, loom.id, loom.entry);
   const imported = await importDefinition(entry, opts.cacheBust === true);
-  // Shallow copy: the imported module's object is never mutated.
-  const definition = validate({ ...imported, scope });
+  // Shallow copy: reads each getter once, and the imported module's object is never shared with the kernel.
+  const definition = validate({ ...imported });
   if (definition.id !== loom.id) {
     throw fail(
       "validate",
@@ -158,7 +157,7 @@ async function listPackageDirs(path: string): Promise<Candidate[]> {
  * not resolved). `cacheBust` versions only the entry file, not modules it imports.
  */
 export async function loadPluginsFromDirs(
-  dirs: readonly { path: string; scope: Scope }[],
+  dirs: readonly { path: string }[],
   opts: LoadOptions,
 ): Promise<LoadResult> {
   const plugins: LoadedPlugin[] = [];
@@ -177,7 +176,7 @@ export async function loadPluginsFromDirs(
       const dir = join(group.path, name);
       try {
         if (listError) throw listError;
-        const outcome = await loadPackage(dir, group.scope, opts);
+        const outcome = await loadPackage(dir, opts);
         if ("plugin" in outcome) plugins.push(outcome.plugin);
       } catch (error) {
         const wrapped =

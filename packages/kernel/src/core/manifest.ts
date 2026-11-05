@@ -38,7 +38,6 @@ const schema = z
   .strictObject({
     id: z.string().regex(/^[a-z][a-z0-9-]*(\/[a-z0-9-]+)?$/, "invalid plugin id"),
     version: z.string().refine(isVersion, "invalid semver version"),
-    scope: z.enum(["builtin", "user", "project"]).optional(),
     dependsOn: rangeMap.optional(),
     optionalDependsOn: rangeMap.optional(),
     startup: z.record(z.string(), z.unknown()).optional(),
@@ -61,12 +60,24 @@ const schema = z
     uniqueIds(p.overrides as ExtensionDefinition[] | undefined, "overrides", ctx);
   });
 
+export interface ManifestIssue {
+  readonly path: readonly (string | number)[];
+  readonly message: string;
+}
+
+/** zod reports all unknown keys of an object as one issue at the object's path; a manifest issue names one field. */
+function toIssues(issue: z.core.$ZodIssue): ManifestIssue[] {
+  const path = issue.path.map((key) => (typeof key === "symbol" ? String(key) : key));
+  if (issue.code !== "unrecognized_keys") return [{ path, message: issue.message }];
+  return issue.keys.map((key) => ({ path: [...path, key], message: `unknown key "${key}"` }));
+}
+
 export function validatePlugin(def: unknown): PluginDefinition {
   const result = schema.safeParse(def);
   if (result.success) return def as PluginDefinition;
-  const issues = result.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+  const issues = result.error.issues.flatMap(toIssues);
   const id = typeof (def as { id?: unknown } | null)?.id === "string" ? (def as { id: string }).id : undefined;
-  const summary = issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)).join("; ");
+  const summary = issues.map((i) => (i.path.length > 0 ? `${i.path.join(".")}: ${i.message}` : i.message)).join("; ");
   throw new LoomError("MANIFEST_INVALID", `Invalid plugin manifest${id ? ` "${id}"` : ""}: ${summary}`, {
     ...(id ? { pluginIds: [id] } : {}),
     details: { issues },

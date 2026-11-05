@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createKernel } from "../../src/core/kernel.js";
-import { BeforeInstallHook, PluginsRef } from "../../src/core/plugins-service.js";
+import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
 import { ids, must, plugin, rejection } from "./kernel-helpers.js";
 
@@ -22,50 +22,13 @@ describe("plugins service", () => {
     expect(host.dependsOn).toBeUndefined();
   });
 
-  it("install runs BeforeInstallHook and rejects with INSTALL_DENIED", async () => {
-    const log: string[] = [];
-    const k = createKernel();
-    const asked: string[] = [];
-    let svc: PluginsService | undefined;
-    const guard = plugin(log, "guard", {
-      provides: false,
-      setup: (ctx) => {
-        svc = ctx.use(PluginsRef);
-        ctx.tap(BeforeInstallHook, {}, ({ plugin: p }) => {
-          asked.push(p.id);
-          return Promise.resolve(p.id === "evil" ? { allow: false, reason: "blocked" } : { allow: true });
-        });
-      },
-    });
-    await k.reconcile([guard]);
-    const err = await rejection(must(svc).install(plugin(log, "evil")));
-    expect(err.code).toBe("INSTALL_DENIED");
-    expect(err.pluginIds).toEqual(["evil"]);
-    expect(err.details).toEqual({ reason: "blocked" });
-    expect(err.message).toContain("blocked");
-    expect(ids(k.plugins)).toEqual(["guard"]);
-    const diff = await must(svc).install(plugin(log, "good"));
+  it("install adds and enables the plugin", async () => {
+    const { svc, k, log } = await withService();
+    const diff = await svc.install(plugin(log, "good"));
     expect(diff.added).toEqual(["good"]);
-    expect(asked).toEqual(["evil", "good"]);
-    expect(must(svc).list().map((p) => p.id)).toEqual(["guard", "good"]);
+    expect(ids(k.plugins)).toEqual(["good", "host"]);
+    expect(svc.list().map((p) => p.id)).toEqual(["host", "good"]);
   });
-
-  it("install denied without a reason still names the plugin", async () => {
-    const { svc } = await withService();
-    const log: string[] = [];
-    await svc.install(
-      plugin(log, "deny", {
-        provides: false,
-        setup: (ctx) => {
-          ctx.tap(BeforeInstallHook, {}, () => Promise.resolve({ allow: false }));
-        },
-      }),
-    );
-    const err = await rejection(svc.install(plugin(log, "x")));
-    expect(err.code).toBe("INSTALL_DENIED");
-    expect(err.details).toEqual({});
-  });
-
 });
 
 describe("plugins service catalogue", () => {
@@ -84,22 +47,24 @@ describe("plugins service catalogue", () => {
     expect(ids(k.plugins)).toEqual(["b", "host"]);
   });
 
-  it("uninstall removes the plugin from the catalogue; unknown ids are no-ops", async () => {
+  it("uninstall removes the plugin from the catalogue", async () => {
     const { svc, k, log } = await withService();
     await svc.install(plugin(log, "b"));
     const diff = await svc.uninstall("b");
     expect(diff.removed).toEqual(["b"]);
     expect(svc.list().map((p) => p.id)).toEqual(["host"]);
-    expect(await svc.uninstall("nope")).toEqual({ added: [], removed: [], reloaded: [], requiresRestart: [] });
-    expect((await svc.disable("nope")).removed).toEqual([]);
     expect(ids(k.plugins)).toEqual(["host"]);
   });
 
-  it("enable of an unknown id rejects", async () => {
-    const { svc } = await withService();
-    const err = await rejection(svc.enable("ghost"));
-    expect(err.code).toBe("DEPENDENCY_MISSING");
-    expect(err.pluginIds).toEqual(["ghost"]);
+  it.each(["enable", "disable", "uninstall"] as const)("%s of an unknown id rejects with PLUGIN_UNKNOWN and changes nothing", async (method) => {
+    const { svc, k } = await withService();
+    const changed = vi.fn();
+    k.on("plugins.changed", changed);
+    const err = await rejection(svc[method]("nope"));
+    expect(err.code).toBe("PLUGIN_UNKNOWN");
+    expect(err.pluginIds).toEqual(["nope"]);
+    expect(changed).not.toHaveBeenCalled();
+    expect(svc.list().map((p) => p.id)).toEqual(["host"]);
   });
 
   it("reload re-runs setup even for the same definition object and keeps enabled state", async () => {
@@ -120,17 +85,10 @@ describe("plugins service catalogue", () => {
 });
 
 describe("plugins service replace and races", () => {
-  it("reload of an unknown id installs it through BeforeInstallHook", async () => {
+  it("reload of an unknown id installs it", async () => {
     const { svc, log } = await withService();
-    await svc.install(
-      plugin(log, "deny", {
-        provides: false,
-        setup: (ctx) => {
-          ctx.tap(BeforeInstallHook, {}, () => Promise.resolve({ allow: false, reason: "no" }));
-        },
-      }),
-    );
-    expect((await rejection(svc.reload(plugin(log, "fresh")))).code).toBe("INSTALL_DENIED");
+    expect((await svc.reload(plugin(log, "fresh"))).added).toEqual(["fresh"]);
+    expect(svc.list().map((p) => p.id)).toEqual(["host", "fresh"]);
   });
 
   it("install of an existing id replaces it; a failed install leaves the catalogue unchanged", async () => {
@@ -144,14 +102,14 @@ describe("plugins service replace and races", () => {
     expect(ids(k.plugins)).toEqual(["b", "host"]);
   });
 
-  it("reload racing an earlier uninstall rejects instead of bypassing BeforeInstallHook", async () => {
+  it("reload racing an earlier uninstall rejects instead of reinstalling", async () => {
     const { svc, log } = await withService();
     const b = plugin(log, "b");
     await svc.install(b);
     const gone = svc.uninstall("b");
     const err = await rejection(svc.reload(b));
     await gone;
-    expect(err.code).toBe("DEPENDENCY_MISSING");
+    expect(err.code).toBe("PLUGIN_UNKNOWN");
     expect(svc.list().map((p) => p.id)).toEqual(["host"]);
   });
 });

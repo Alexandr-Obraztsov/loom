@@ -1,4 +1,4 @@
-export { attach, BeforeInstallHook, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef, provideRemoteServices, tapRemote } from "@loom/kernel";
+export { attach, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef, provideRemoteServices, tapRemote } from "@loom/kernel";
 export type {
   AbortSignalLike,
   ExtensionContext,

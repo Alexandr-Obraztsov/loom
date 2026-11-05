@@ -33,10 +33,9 @@ await kernel.reconcile([log, greeter]); // log — другой плагин
 ```
 
 `reconcile(desired)` делает `desired` установленным набором и применяет разницу «вживую»
-(см. [гарантии reconcile](#гарантии-reconcile)). `scope: "project"` грузится, только если
-`KernelOptions.trust(plugin)` вернул `true`. `trust` вызывается на каждом проходе, поэтому
-он должен быть дешёвым и идемпотентным: хост кэширует решение по пути папки и хэшу
-(путь + хэш), а не спрашивает пользователя заново.
+(см. [гарантии reconcile](#гарантии-reconcile)). Схема определения строгая: неизвестный ключ,
+версия не в канонической форме (`"v1.0.0"`) и пустой диапазон дают `MANIFEST_INVALID`, а
+`details.issues[].path` — массив ключей до поля.
 
 ### Сервис
 
@@ -141,10 +140,10 @@ const darkFiles = definePlugin({
 | Код | Когда возникает |
 |---|---|
 | `MANIFEST_INVALID` | Определение плагина не прошло схему (id, semver, диапазоны, зависимость от себя, дубли id расширений); два плагина с одним id; загрузчик не смог прочитать `package.json`, импортировать или проверить пакет (`details.phase`) |
-| `DEPENDENCY_MISSING` | Нет обязательной зависимости; `PluginsService.enable` / `reload` неизвестного id |
+| `DEPENDENCY_MISSING` | Нет обязательной зависимости |
 | `DEPENDENCY_VERSION` | Версия зависимости не попадает в диапазон |
 | `DEPENDENCY_CYCLE` | Цикл в `dependsOn`/`optionalDependsOn`; цикл `attachTo` в дереве (причина сироты) |
-| `UNTRUSTED` | `scope: "project"` без `trust` или `trust` вернул не `true` / бросил (сообщается в `kernel.error`, плагин пропускается) |
+| `PLUGIN_UNKNOWN` | `PluginsService.enable` / `disable` / `uninstall` (и `reload`, опоздавший за `uninstall`) неизвестного id; reconcile не запускается, `plugins.changed` не приходит |
 | `SERVICE_CONFLICT` | Второй `provide`/`override` того же сервиса без `winners`; второй RPC-обработчик одной цели |
 | `SERVICE_MISSING` | Вызов через прокси сервиса без активного провайдера |
 | `UNDECLARED_DEPENDENCY` | Плагин использует сервис плагина, которого нет в его зависимостях |
@@ -154,7 +153,6 @@ const darkFiles = definePlugin({
 | `SETUP_FAILED` | `setup` плагина бросил; reconcile откатился. `pluginIds` — объединение упавшего плагина и плагинов из `cause` (при конфликте сервисов — оба), `details.causeCode` — код причины-`LoomError`; `details.rollbackFailed` / `notRestored`, если откат не удался |
 | `TAP_FAILED` | Тап, `match`, слушатель, декоратор, `onChange` или `dispose` бросил; sync-тап вернул Promise; `next()` вызван дважды; противоречивые `before`/`after`; удалённый тап на sync-хук |
 | `HOOK_TIMEOUT` | Удалённый тап не ответил за `timeoutMs` (по умолчанию 5000 мс); цепочка продолжается без него |
-| `INSTALL_DENIED` | `BeforeInstallHook` вернул `{ allow: false }` при `PluginsService.install` (и `reload` ещё не установленного id) |
 | `RPC_DISCONNECTED` | Вызов через закрытый endpoint; endpoint закрылся во время вызова или удалённого тапа |
 | `RPC_REMOTE_ERROR` | Ошибка на той стороне без `LoomError`; сообщение нельзя отправить (`structuredClone`); входящее сообщение некорректно |
 | `RPC_CANCELLED` | Вызов отменён через `AbortSignal`; удалённый тап больше не выполняется |
@@ -236,7 +234,7 @@ const kernel = createKernel({ hostServices: [[HostRef, host]] });
 import { loadPluginsFromDirs } from "@loom/kernel/node";
 
 const { plugins, failures } = await loadPluginsFromDirs(
-  [{ path: "/app/plugins", scope: "builtin" }, { path: "./.loom/plugins", scope: "project" }],
+  [{ path: "/app/plugins" }, { path: "./.loom/plugins" }],
   { entry: "main" }, // или "renderer"; cacheBust: true — перечитать entry-файл
 );
 await kernel.reconcile(plugins.map((p) => p.definition));

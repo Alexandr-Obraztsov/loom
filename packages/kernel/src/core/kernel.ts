@@ -107,7 +107,6 @@ export function createKernel(options: KernelOptions = {}): Kernel {
       live();
       return catalog;
     },
-    run: (hook, ctx, fallback) => rt.hooks.run(hook, ctx, fallback),
   });
   const rt = new KernelRuntime(options, (registry) => {
     registry.provide(PluginsRef, pluginsService, KERNEL_ID);

@@ -2,15 +2,16 @@ import { describe, expect, it } from "vitest";
 import { attach, createExtension, createHook, createServiceRef, definePlugin } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { validatePlugin } from "../../src/core/manifest.js";
+import type { ManifestIssue } from "../../src/core/manifest.js";
 
-function issuesOf(def: unknown): readonly unknown[] {
+function issuesOf(def: unknown): readonly ManifestIssue[] {
   try {
     validatePlugin(def);
   } catch (e) {
     expect(e).toBeInstanceOf(LoomError);
     const err = e as LoomError;
     expect(err.code).toBe("MANIFEST_INVALID");
-    return (err.details as { issues: unknown[] }).issues;
+    return (err.details as { issues: ManifestIssue[] }).issues;
   }
   throw new Error("expected validatePlugin to throw");
 }
@@ -29,11 +30,10 @@ describe("validatePlugin", () => {
     expect(validatePlugin({ id: "a", version: "1.0.0" }).id).toBe("a");
   });
 
-  it("accepts scoped ids, ranges, scope, startup, setup, extensions and overrides", () => {
+  it("accepts scoped ids, ranges, startup, setup, extensions and overrides", () => {
     const def = definePlugin({
       id: "acme/jira",
       version: "1.2.3",
-      scope: "user",
       dependsOn: { b: "^1.0.0" },
       optionalDependsOn: { c: ">=2" },
       startup: { x: 1 },
@@ -82,7 +82,7 @@ describe("validatePlugin", () => {
 
   it("rejects non-object input and wrong field types", () => {
     expect(issuesOf(null).length).toBeGreaterThan(0);
-    expect(issuesOf({ id: "a", version: "1.0.0", setup: "x", scope: "weird" }).length).toBe(2);
+    expect(issuesOf({ id: "a", version: "1.0.0", setup: "x", scope: "user" }).length).toBe(2);
   });
 
   it("handles prototype-named keys without false positives", () => {
@@ -173,5 +173,24 @@ describe("attach", () => {
     expect(id({ b: "é" })).not.toBe(id({ b: "e" }));
     expect(id(() => 1)).toBe(id(() => 2));
     expect(id({ f() { return 1; } })).not.toBe(id({ g() { return 1; } }));
+  });
+});
+
+describe("validatePlugin strictness", () => {
+  it("names the offending field as a path array, one issue per unknown key", () => {
+    expect(issuesOf({ id: "a", version: "1.0.0", dependOn: {} })).toEqual([
+      { path: ["dependOn"], message: "unknown key \"dependOn\"" },
+    ]);
+    const nested = issuesOf({ id: "a", version: "1.0.0", extensions: [{ ...ext("e"), atachTo: {}, orderr: 1 }] });
+    expect(nested.map((i) => i.path)).toEqual([
+      ["extensions", 0, "atachTo"],
+      ["extensions", 0, "orderr"],
+    ]);
+  });
+
+  it("rejects a v-prefixed version and an empty dependency range", () => {
+    expect(issuesOf({ id: "a", version: "v1.0.0" })).toHaveLength(1);
+    expect(issuesOf({ id: "a", version: "1.0.0", dependsOn: { b: "" } })).toHaveLength(1);
+    expect(issuesOf({ id: "a", version: "1.0.0", optionalDependsOn: { b: "" } })).toHaveLength(1);
   });
 });

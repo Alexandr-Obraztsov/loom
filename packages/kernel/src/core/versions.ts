@@ -21,8 +21,10 @@ function memo<A extends string[]>(fn: (...args: A) => boolean): (...args: A) => 
   };
 }
 
-export const isVersion: (version: string) => boolean = memo((v) => valid(v) !== null);
-export const isRange: (range: string) => boolean = memo((r) => validRange(r) !== null);
+// `valid` also accepts "v1.0.0" and "=1.0.0" (returning the cleaned string); a manifest must spell the version canonically.
+export const isVersion: (version: string) => boolean = memo((v) => valid(v) === v);
+// `validRange("")` is "*"; an empty range in a manifest is a mistake, not "any version" (write "*" for that).
+export const isRange: (range: string) => boolean = memo((r) => r !== "" && validRange(r) !== null);
 export const inRange: (version: string, range: string) => boolean = memo((v, r) =>
   satisfies(v, r, { includePrerelease: true }),
 );

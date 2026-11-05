@@ -24,7 +24,6 @@ async function start(): Promise<void> {
   });
   const kernel = createKernel({
     config,
-    trust: () => true,
     hostServices: [[HostRef, { process: "renderer", projectDir, dataDir: "", endpoint }]],
   });
   await kernel.reconcile(plugins);

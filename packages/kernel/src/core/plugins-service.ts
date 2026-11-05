@@ -1,8 +1,7 @@
-import { createHook, createServiceRef } from "./definitions.js";
+import { createServiceRef } from "./definitions.js";
 import { LoomError } from "./errors.js";
-import type { HookRegistry } from "./hooks.js";
 import type { ReconcileDiff } from "./reconcile.js";
-import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
+import type { PluginDefinition, ServiceRef } from "./types.js";
 
 /**
  * The kernel's own service. Every call is queued behind running reconciles,
@@ -11,33 +10,32 @@ import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
  *
  * Plugins can change one catalogue entry at a time but cannot trigger a full
  * `reconcile()`: replacing the whole plugin set belongs to the host that
- * owns discovery and trust, and a plugin able to do it could unload every other
- * plugin, or itself mid-setup, bypassing BeforeInstallHook for the rest.
+ * owns discovery, and a plugin able to do it could unload every other
+ * plugin, or itself mid-setup.
+ *
+ * `enable`, `disable` and `uninstall` of an id that is not in the catalogue reject with
+ * `PLUGIN_UNKNOWN` before any reconcile pass runs, so no `plugins.changed` is emitted.
  */
 export interface PluginsService {
-  /** Runs BeforeInstallHook, then adds (or replaces) and enables the plugin. */
+  /** Adds (or replaces) and enables the plugin. */
   install(def: PluginDefinition): Promise<ReconcileDiff>;
-  /** Removes the plugin from the catalogue; an unknown id is a no-op. */
+  /** Removes the plugin from the catalogue; an unknown id rejects with PLUGIN_UNKNOWN. */
   uninstall(id: string): Promise<ReconcileDiff>;
-  /** Re-activates a disabled plugin; an unknown id rejects with DEPENDENCY_MISSING. */
+  /** Re-activates a disabled plugin; an unknown id rejects with PLUGIN_UNKNOWN. */
   enable(id: string): Promise<ReconcileDiff>;
-  /** Keeps the definition but removes it from the active set; an unknown id is a no-op. */
+  /** Keeps the definition but removes it from the active set; an unknown id rejects with PLUGIN_UNKNOWN. */
   disable(id: string): Promise<ReconcileDiff>;
   /**
    * Replaces the definition and re-runs its setup even if it is the same object, keeping the enabled flag.
-   * An id unknown at call time is installed (through BeforeInstallHook); one uninstalled while this call
-   * waited in the queue rejects with DEPENDENCY_MISSING.
+   * An id unknown at call time is installed; one uninstalled while this call
+   * waited in the queue rejects with PLUGIN_UNKNOWN. After `kernel.dispose()` the returned promise
+   * rejects with DISPOSED (it never throws synchronously).
    */
   reload(def: PluginDefinition): Promise<ReconcileDiff>;
   list(): readonly { id: string; version: string; enabled: boolean }[];
 }
 
 export const PluginsRef: ServiceRef<PluginsService> = createServiceRef<PluginsService>("plugins");
-
-export const BeforeInstallHook: HookRef<{ plugin: PluginDefinition }, Promise<{ allow: boolean; reason?: string }>> =
-  createHook<{ plugin: PluginDefinition }, Promise<{ allow: boolean; reason?: string }>>("plugins.beforeInstall", {
-    mode: "async",
-  });
 
 export interface CatalogEntry {
   readonly def: PluginDefinition;
@@ -54,7 +52,6 @@ export interface PluginsServiceHost {
   /** Queues `change`, applied to the catalogue current at that time; the catalogue is committed only if the reconcile succeeds. */
   submit(change: (catalog: readonly CatalogEntry[]) => CatalogChange): Promise<ReconcileDiff>;
   catalog(): readonly CatalogEntry[];
-  run: HookRegistry["run"];
 }
 
 function upsert(catalog: readonly CatalogEntry[], entry: CatalogEntry): CatalogEntry[] {
@@ -65,37 +62,31 @@ function upsert(catalog: readonly CatalogEntry[], entry: CatalogEntry): CatalogE
 
 function entryOf(catalog: readonly CatalogEntry[], id: string): CatalogEntry {
   const entry = catalog.find((e) => e.def.id === id);
-  if (!entry) throw new LoomError("DEPENDENCY_MISSING", `Plugin "${id}" is not installed`, { pluginIds: [id] });
+  if (!entry) throw new LoomError("PLUGIN_UNKNOWN", `Plugin "${id}" is not installed`, { pluginIds: [id] });
   return entry;
 }
 
 function setEnabled(id: string, enabled: boolean) {
-  return (catalog: readonly CatalogEntry[]): CatalogChange => ({
+  return (catalog: readonly CatalogEntry[]): CatalogChange => {
+    entryOf(catalog, id);
+    return {
     catalog: catalog.map((e) => (e.def.id === id ? { def: e.def, enabled } : e)),
-  });
+    };
+  };
 }
 
 export function createPluginsService(host: PluginsServiceHost): PluginsService {
-  const install = async (def: PluginDefinition): Promise<ReconcileDiff> => {
-    const verdict = await host.run(BeforeInstallHook, { plugin: def }, () => Promise.resolve({ allow: true }));
-    if (!verdict.allow) {
-      const why = verdict.reason === undefined ? "" : `: ${verdict.reason}`;
-      throw new LoomError("INSTALL_DENIED", `Installation of plugin "${def.id}" was denied${why}`, {
-        pluginIds: [def.id],
-        details: verdict.reason === undefined ? {} : { reason: verdict.reason },
-      });
-    }
-    return host.submit((catalog) => ({ catalog: upsert(catalog, { def, enabled: true }), force: [def.id] }));
-  };
+  const install = (def: PluginDefinition): Promise<ReconcileDiff> =>
+    host.submit((catalog) => ({ catalog: upsert(catalog, { def, enabled: true }), force: [def.id] }));
 
   return {
     install,
-    uninstall: (id) => host.submit((catalog) => ({ catalog: catalog.filter((e) => e.def.id !== id) })),
-    enable: (id) =>
+    uninstall: (id) =>
       host.submit((catalog) => {
         entryOf(catalog, id);
-        return setEnabled(id, true)(catalog);
+        return { catalog: catalog.filter((e) => e.def.id !== id) };
       }),
+    enable: (id) => host.submit(setEnabled(id, true)),
     disable: (id) => host.submit(setEnabled(id, false)),
     reload(def) {
       let known: boolean;
@@ -105,7 +96,7 @@ export function createPluginsService(host: PluginsServiceHost): PluginsService {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }
       if (!known) return install(def);
-      // Re-checked in the queue: an uninstall queued earlier must not let reload skip BeforeInstallHook.
+      // Re-checked in the queue: an uninstall queued earlier must not turn this reload into a reinstall.
       return host.submit((catalog) => ({
         catalog: upsert(catalog, { def, enabled: entryOf(catalog, def.id).enabled }),
         force: [def.id],
