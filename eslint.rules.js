@@ -76,6 +76,7 @@ export const boundariesConfig = {
         capture: ["plugin"],
       },
       { type: "app", pattern: "apps/*/src/**", partialMatch: false },
+      { type: "app-test", pattern: "apps/*/test/**", partialMatch: false },
     ],
   },
   rules: {
@@ -123,6 +124,10 @@ export const boundariesConfig = {
           },
           // an app may use anything except the internals of kernel
           {
+            from: { element: { type: "app-test" } },
+            allow: [allowTo("app", "app-test"), ENTRY, PACKAGE_ENTRY, PLUGIN_ENTRY],
+          },
+          {
             from: { element: { type: "app" } },
             allow: [allowTo("app"), ENTRY, PACKAGE_ENTRY, PLUGIN_ENTRY],
           },
@@ -137,7 +142,9 @@ const NO_UPWARD_IMPORTS = {
   group: PLUGIN_AND_APP_NAMES,
   message: "Packages must not import plugins or apps.",
 };
-const SDK_PATH = { name: "@loom/sdk", message: "Kernel must not depend on the SDK." };
+const SDK_MESSAGE = "Kernel must not depend on the SDK.";
+const SDK_PATH = { name: "@loom/sdk", message: SDK_MESSAGE };
+const SDK_SUBPATHS = { group: ["@loom/sdk/*"], message: SDK_MESSAGE };
 const PLATFORM_GLOBALS = ["process", "Buffer"].map((name) => ({
   name,
   message: "Node globals are not allowed here; keep this layer platform-neutral.",
@@ -149,7 +156,10 @@ export const platformNeutralConfigs = [
     rules: {
       "no-restricted-imports": [
         "error",
-        { paths: [...BUILTIN_PATHS, SDK_PATH], patterns: [...BUILTIN_PATTERNS, NO_UPWARD_IMPORTS] },
+        {
+          paths: [...BUILTIN_PATHS, SDK_PATH],
+          patterns: [...BUILTIN_PATTERNS, NO_UPWARD_IMPORTS, SDK_SUBPATHS],
+        },
       ],
       "no-restricted-globals": ["error", ...PLATFORM_GLOBALS],
     },
@@ -158,7 +168,10 @@ export const platformNeutralConfigs = [
     // Node built-ins are fine here; the SDK is a facade over the kernel, never the other way round
     files: ["packages/kernel/src/node/**/*.ts"],
     rules: {
-      "no-restricted-imports": ["error", { paths: [SDK_PATH], patterns: [NO_UPWARD_IMPORTS] }],
+      "no-restricted-imports": [
+        "error",
+        { paths: [SDK_PATH], patterns: [NO_UPWARD_IMPORTS, SDK_SUBPATHS] },
+      ],
     },
   },
   {
@@ -176,6 +189,7 @@ export const platformNeutralConfigs = [
           patterns: [
             ...BUILTIN_PATTERNS,
             NO_UPWARD_IMPORTS,
+            SDK_SUBPATHS,
             {
               group: ["electron/*", "react/*", "react-dom", "react-dom/*"],
               message: "Core must not depend on UI or shell libraries.",

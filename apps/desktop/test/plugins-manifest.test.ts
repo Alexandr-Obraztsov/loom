@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 // validatePlugin is not part of the kernel's public API; this repo check reaches in for it on purpose
+// eslint-disable-next-line boundaries/dependencies -- deliberate: kernel internals are off-limits to apps except for this check
 import { validatePlugin } from "../../../packages/kernel/src/core/manifest.js";
 import { createTurnGuard } from "../src/main/turn-guard.js";
 import { pluginEntries } from "../vite/loom-build.js";

@@ -19,8 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json",
     "bench": "vitest bench --run --root ../.. --project kernel",
-    "api:check": "api-extractor run",
-    "api:update": "api-extractor run --local"
+    "api:check": "api-extractor run && api-extractor run -c api-extractor.node.json",
+    "api:update": "api-extractor run --local && api-extractor run --local -c api-extractor.node.json"
   },
   "dependencies": {
     "semver": "^7.8.6",

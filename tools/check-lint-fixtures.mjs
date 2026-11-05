@@ -34,6 +34,7 @@ const expected = {
   [`${k}/node/to-entry.ts`]: BOUNDARIES,
   // no layer of the kernel depends on the SDK
   [`${k}/core/imports-sdk.ts`]: IMPORTS,
+  [`${k}/core/imports-sdk-subpath.ts`]: IMPORTS,
   [`${k}/rpc/imports-sdk.ts`]: IMPORTS,
   [`${k}/node/imports-sdk.ts`]: IMPORTS,
   // core and rpc stay platform-neutral: no Node globals either
@@ -73,6 +74,9 @@ const expected = {
   [`${p}/bar/src/kernel.ts`]: [BOUNDARIES, IMPORTS],
   [`${a}/main.ts`]: null,
   [`${a}/deep.ts`]: BOUNDARIES,
+  // app tests may use public entries, not kernel internals
+  ["apps/desk/test/ok.test.ts"]: null,
+  ["apps/desk/test/kernel-internal.test.ts"]: BOUNDARIES,
 };
 
 // eslint-plugin-boundaries resolves element patterns against process.cwd().
