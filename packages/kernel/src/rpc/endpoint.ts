@@ -1,6 +1,7 @@
 import { LoomError } from "../core/errors.js";
-import { describe, deserializeError, isRpcMessage, remoteError, serializeError } from "./protocol.js";
-import { createAbortController } from "./platform.js";
+import { cancelled, deserializeError, describe, disconnected, isRpcMessage, remoteError, serializeError } from "./protocol.js";
+import { createAbortController, microtask } from "./platform.js";
+import { ProtocolSinks } from "./protocol-sinks.js";
 import type { AbortControllerLike, AbortSignalLike } from "./platform.js";
 import type { RpcMessage, TapMessage, Transport } from "./protocol.js";
 
@@ -38,7 +39,10 @@ export interface RpcChannel {
   onTapMessage(cb: (msg: TapMessage) => void): void;
   /** Runs `cb` once on close (immediately if already closed). */
   onClose(cb: () => void): () => void;
-  /** Adds a protocol error sink; sinks registered under the same `key` report once. */
+  /**
+   * Adds a protocol error sink; sinks registered under the same `key` share one registration,
+   * and of the different keys only the oldest reports (all belong to the one kernel of this side).
+   */
   onProtocolError(key: object, cb: (error: LoomError) => void): () => void;
 }
 
@@ -57,14 +61,6 @@ export function channelOf(endpoint: RpcEndpoint): RpcChannel {
   return channel;
 }
 
-export function disconnected(what: string): LoomError {
-  return new LoomError("RPC_DISCONNECTED", `${what}: the RPC endpoint is closed`);
-}
-
-function cancelled(target: string, method: string): LoomError {
-  return new LoomError("RPC_CANCELLED", `Call to "${target}.${method}" was cancelled`);
-}
-
 class Endpoint implements RpcEndpoint, RpcChannel {
   closed = false;
   private seq = 0;
@@ -73,7 +69,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   private readonly incoming = new Map<number, AbortControllerLike>();
   private readonly tapListeners = new Set<(msg: TapMessage) => void>();
   private readonly closeListeners = new Set<() => void>();
-  private readonly protocolSinks = new Map<object, { readonly cb: (error: LoomError) => void; count: number }>();
+  private readonly protocolSinks = new ProtocolSinks();
   private readonly off: readonly (() => void)[];
 
   constructor(
@@ -81,7 +77,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
     private readonly options: RpcEndpointOptions,
   ) {
     this.off = [
-      transport.onMessage((msg: unknown) => {
+      transport.onMessage((msg) => {
         this.accept(msg);
       }),
       transport.onClose(() => {
@@ -99,7 +95,11 @@ class Endpoint implements RpcEndpoint, RpcChannel {
         // settling removes this listener, so the call is still pending here
         this.pending.delete(id);
         reject(cancelled(target, method));
-        this.send({ type: "cancel", id });
+        try {
+          this.send({ type: "cancel", id });
+        } catch {
+          // best effort: the call is already rejected, and a throw here would escape into the signal's dispatch
+        }
       };
       const done = (): void => {
         signal?.removeEventListener("abort", onAbort);
@@ -176,12 +176,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   onProtocolError(key: object, cb: (error: LoomError) => void): () => void {
-    const sink = this.protocolSinks.get(key) ?? { cb, count: 0 };
-    sink.count++;
-    this.protocolSinks.set(key, sink);
-    return () => {
-      if (--sink.count === 0 && this.protocolSinks.get(key) === sink) this.protocolSinks.delete(key);
-    };
+    return this.protocolSinks.add(key, cb);
   }
 
   /** Transport callback: validates, dispatches, and never throws. */
@@ -196,15 +191,11 @@ class Endpoint implements RpcEndpoint, RpcChannel {
 
   private protocolError(text: string, raw: unknown): void {
     const error = new LoomError("RPC_REMOTE_ERROR", text, { details: { message: raw } });
-    const sinks = [...this.protocolSinks.values()].map((s) => s.cb);
-    const { options } = this;
-    if (options.onProtocolError) sinks.unshift((e) => options.onProtocolError?.(e));
-    for (const cb of sinks) {
-      try {
-        cb(error);
-      } catch {
-        // a failing sink must not throw into the transport
-      }
+    if (!this.protocolSinks.report(error, this.options)) {
+      // nobody listens: surface the problem instead of dropping the message silently
+      microtask(() => {
+        throw error;
+      });
     }
   }
 

@@ -17,7 +17,8 @@ describe("rpc wire protocol", () => {
   it("tapping side passes unknown taps through and ignores stray tap-results", async () => {
     const [raw, tb] = createMemoryTransportPair();
     const seen: RpcMessage[] = [];
-    raw.onMessage((msg) => {
+    raw.onMessage((incoming) => {
+      const msg = incoming as RpcMessage;
       seen.push(msg);
       if (msg.type === "call") raw.send({ type: "result", id: msg.id, value: undefined });
     });
@@ -50,7 +51,7 @@ describe("rpc wire protocol", () => {
     await main.reconcile([]);
     exposeHooks(main, createRpcEndpoint(ta), [H]);
     const seen: RpcMessage[] = [];
-    raw.onMessage((msg) => seen.push(msg));
+    raw.onMessage((msg) => seen.push(msg as RpcMessage));
     raw.send({ type: "call", id: 1, target: "loom:hook:h.wire", method: "tap", args: [{ tapId: 5, owner: "w", timeoutMs: 1000 }] });
     await tick();
     const run = main.run(H, { n: 1 }, (c) => Promise.resolve(c.n));
@@ -67,7 +68,7 @@ describe("rpc wire protocol", () => {
   it("memory transport drops messages sent after or in flight at close", async () => {
     const [ta, tb] = createMemoryTransportPair();
     const got: RpcMessage[] = [];
-    tb.onMessage((m) => got.push(m));
+    tb.onMessage((m) => got.push(m as RpcMessage));
     const off = tb.onClose(() => undefined);
     off();
     ta.send({ type: "cancel", id: 1 });

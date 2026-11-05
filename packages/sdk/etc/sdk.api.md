@@ -179,7 +179,9 @@ export interface PluginsService {
 }
 
 // @public
-export function provideRemoteServices(ctx: PluginContext, endpoint: RpcEndpoint, refs: readonly ServiceRef<object>[]): void;
+export function provideRemoteServices(ctx: PluginContext, endpoint: RpcEndpoint, refs: readonly ServiceRef<object>[], options?: {
+    readonly callTimeoutMs?: number;
+}): void;
 
 // @public (undocumented)
 export interface ReconcileDiff {

@@ -34,7 +34,8 @@ export type TapMessage = Extract<RpcMessage, { type: "tap-invoke" | "tap-next" |
 export interface Transport {
   /** May throw synchronously (e.g. DataCloneError); the endpoint turns that into RPC_REMOTE_ERROR. */
   send(msg: RpcMessage): void;
-  onMessage(cb: (msg: RpcMessage) => void): () => void;
+  /** Incoming data is untyped: the endpoint validates it and reports whatever is not an `RpcMessage`. */
+  onMessage(cb: (message: unknown) => void): () => void;
   onClose(cb: () => void): () => void;
 }
 
@@ -102,6 +103,14 @@ export function deserializeError(s: SerializedError): LoomError {
 
 export function remoteError(message: string, cause?: unknown): LoomError {
   return new LoomError("RPC_REMOTE_ERROR", message, cause === undefined ? {} : { cause });
+}
+
+export function disconnected(what: string): LoomError {
+  return new LoomError("RPC_DISCONNECTED", `${what}: the RPC endpoint is closed`);
+}
+
+export function cancelled(target: string, method: string): LoomError {
+  return new LoomError("RPC_CANCELLED", `Call to "${target}.${method}" was cancelled`);
 }
 
 /** The RPC target under which `exposeHooks` serves tap/untap requests for one hook. */

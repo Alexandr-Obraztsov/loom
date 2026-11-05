@@ -53,7 +53,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("rpc liveness on close (R14)", () => {
+describe("rpc liveness on close (close and bye)", () => {
   it("run that reaches a remote tap after close continues with next and reports RPC_DISCONNECTED", async () => {
     let open: () => void = () => undefined;
     const gate = new Promise<void>((r) => (open = r));

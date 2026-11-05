@@ -14,7 +14,7 @@ export function createMainTransport(port: MessagePortMain): Transport {
     },
     onMessage: (cb) => {
       const listener = (event: { data: unknown }): void => {
-        cb(event.data as never);
+        cb(event.data);
         // the endpoint handles `bye` as a close; main's link needs to know as well
         if ((event.data as { type?: unknown } | null)?.type === "bye") closed();
       };

@@ -8,7 +8,7 @@ export function createPortTransport(port: MessagePort): Transport {
     },
     onMessage: (cb) => {
       const listener = (event: MessageEvent): void => {
-        cb(event.data as never);
+        cb(event.data);
       };
       port.addEventListener("message", listener);
       port.start();

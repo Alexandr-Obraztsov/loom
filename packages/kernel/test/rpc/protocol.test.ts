@@ -8,6 +8,7 @@ import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import type { RpcMessage, Transport } from "../../src/rpc/protocol.js";
 import { exposeHooks } from "../../src/rpc/remote-hooks.js";
 import { exposeServices, remoteServicesPlugin } from "../../src/rpc/remote-services.js";
+import { collectingUncaught } from "./uncaught.js";
 
 const H = createHook<{ n: number }, Promise<number>>("h.proto");
 
@@ -47,7 +48,7 @@ const malformed: [string, unknown][] = [
   ["tap-result failure without error", { type: "tap-result", id: 1, for: "next", outcome: { ok: false } }],
 ];
 
-describe("rpc protocol validation (R13)", () => {
+describe("rpc protocol validation (malformed messages)", () => {
   it.each(malformed)("drops %s without throwing and reports it once", (_name, message) => {
     const { deliver, reports } = reporting();
     expect(() => {
@@ -100,10 +101,14 @@ describe("rpc protocol validation (R13)", () => {
     expect(mainErrors.length).toBe(2);
     stopServices();
     await win.reconcile([]);
-    tb.send({ type: "cancel" } as unknown as RpcMessage);
-    ta.send({ type: "cancel" } as unknown as RpcMessage);
-    await Promise.resolve();
+    // no sink left on either side: the endpoints surface the problem as an uncaught error instead
+    const uncaught = await collectingUncaught(async () => {
+      tb.send({ type: "cancel" } as unknown as RpcMessage);
+      ta.send({ type: "cancel" } as unknown as RpcMessage);
+      await Promise.resolve();
+    });
     expect([mainErrors.length, winErrors.length]).toEqual([2, 1]);
+    expect(uncaught).toHaveLength(2);
   });
 
   it("exposeServices alone routes protocol errors to kernel.error", async () => {
