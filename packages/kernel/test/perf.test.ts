@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import { performance } from "node:perf_hooks";
 import { describe, expect, it } from "vitest";
-import { createServiceRef } from "../src/core/definitions.js";
+import { createHook, createServiceRef } from "../src/core/definitions.js";
 import { createHookRegistry } from "../src/core/hooks.js";
 import { createKernel } from "../src/core/kernel.js";
 import { createServiceRegistry } from "../src/core/services.js";
@@ -121,5 +121,46 @@ describe("performance guards: tree, services, hooks", () => {
     expect(await reg.run(pluginHook, 0, fallback)).toBe(20);
     const ms = await measure(10_000, 5, () => reg.run(pluginHook, 0, fallback));
     expect(ms, `20-tap async run took ${(ms * 1000).toFixed(2)} µs`).toBeLessThan(0.05);
+  });
+});
+
+const syncHook = createHook<number, number>("perf.sync", { mode: "sync" });
+
+describe("performance guards: hooks in setup", () => {
+  it("tap + run per plugin in setup < 3x batch mode over 2000 taps of one hook", () => {
+    const taps = 2000;
+    const fill = (reg: ReturnType<typeof createHookRegistry>, i: number): void => {
+      reg.tap(syncHook, `o${String(i)}`, { priority: i % 5 }, (c) => c); // answers without next(): the run costs ordering, not the chain
+    };
+    const fallback = (c: number): number => c;
+    const batchMode = (): number => {
+      const reg = createHookRegistry({ onError: () => undefined });
+      const t0 = performance.now();
+      const end = reg.defer();
+      for (let i = 0; i < taps; i++) fill(reg, i);
+      end();
+      for (let i = 0; i < taps; i++) reg.run(syncHook, 0, fallback);
+      return performance.now() - t0;
+    };
+    const setupMode = (): number => {
+      const reg = createHookRegistry({ onError: () => undefined });
+      const t0 = performance.now();
+      for (let i = 0; i < taps; i++) {
+        fill(reg, i);
+        reg.run(syncHook, 0, fallback);
+      }
+      return performance.now() - t0;
+    };
+    const median = (f: () => number): number =>
+      [f(), f(), f(), f(), f()].sort((a, b) => a - b)[2] as number;
+    median(batchMode);
+    const batch = median(batchMode);
+    const inSetup = median(setupMode);
+    // batch mode takes ~1 ms, so its timer noise alone could break a strict 3x; the floor keeps a 12 ms ceiling
+    // (the quadratic re-sort this guards against costs ~800 ms)
+    expect(
+      inSetup,
+      `setup ${inSetup.toFixed(1)} ms vs batch ${batch.toFixed(1)} ms (ratio ${(inSetup / batch).toFixed(2)})`,
+    ).toBeLessThan(3 * Math.max(batch, 4));
   });
 });

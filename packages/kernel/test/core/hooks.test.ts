@@ -145,8 +145,10 @@ describe("hook registry 3", () => {
       for (let i = 0; i < 5; i++) reg.run(sync, 0, (c) => c);
       reg.taps(sync);
       expect(spy).not.toHaveBeenCalled();
-      reg.tap(sync, "c", {}, (c, n) => n(c));
-      expect(spy).toHaveBeenCalledTimes(1);
+      reg.tap(sync, "plain", {}, (c, n) => n(c));
+      expect(spy).not.toHaveBeenCalled(); // binary insert, no sort
+      reg.tap(sync, "c", { before: ["a"] }, (c, n) => n(c));
+      expect(spy).toHaveBeenCalledTimes(1); // full recompute
       for (let i = 0; i < 5; i++) reg.run(sync, 0, (c) => c);
       expect(spy).toHaveBeenCalledTimes(1);
     } finally {
