@@ -69,6 +69,19 @@ describe("rollback and ranks", () => {
     expect(k.run(order, [], (c) => c)).toEqual(["a", "s"]);
   });
 
+  it("a failed reconcile that would reorder plugins leaves the tap order unchanged", async () => {
+    const log: string[] = [];
+    const k = createKernel();
+    const [b, c] = [tapper(log, "b"), tapper(log, "c")];
+    await k.reconcile([b, c]);
+    const failing = plugin(log, "z", { provides: false, setup: () => Promise.reject(new Error("z")) });
+    const a = tapper(log, "a");
+    expect((await rejection(k.reconcile([a, b, c, failing]))).code).toBe("SETUP_FAILED");
+    expect(k.run(order, [], (x) => x)).toEqual(["b", "c"]);
+    await k.reconcile([a, b, c]);
+    expect(k.run(order, [], (x) => x)).toEqual(["a", "b", "c"]);
+  });
+
   it("reorders registries only when the rank of an existing owner moves", async () => {
     const rt = new KernelRuntime({}, () => undefined);
     const reorder = vi.spyOn(rt.hooks, "reorder");

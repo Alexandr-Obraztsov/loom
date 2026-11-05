@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { createServiceRef } from "../../src/core/definitions.js";
 import { createKernel } from "../../src/core/kernel.js";
 import { KernelRuntime } from "../../src/core/kernel-runtime.js";
 import { PluginsRef } from "../../src/core/plugins-service.js";
@@ -83,6 +84,41 @@ describe("PluginsService called from setup or teardown", () => {
   });
 });
 
+describe("undetected re-entrancy (documented limit)", () => {
+  it("another plugin's handle used from a setup is not refused: it stays queued until the pass ends", async () => {
+    const log: string[] = [];
+    const k = createKernel();
+    const handle = createServiceRef<{ plugins: PluginsService }>("reentrancy.handle");
+    const owner = plugin(log, "owner", {
+      provides: false,
+      setup: (ctx) => {
+        ctx.provide(handle, { plugins: ctx.use(PluginsRef) });
+      },
+    });
+    let call: Promise<unknown> | undefined;
+    let pendingDuringSetup = false;
+    const user = plugin(log, "user", {
+      deps: ["owner"],
+      provides: false,
+      setup: async (ctx) => {
+        let settled = false;
+        call = ctx
+          .use(handle)
+          .plugins.install(plugin(log, "late"))
+          .finally(() => {
+            settled = true;
+          });
+        await new Promise((resolve) => setTimeout(resolve, 30)); // awaiting `call` here would hang the pass
+        pendingDuringSetup = !settled;
+      },
+    });
+    await k.reconcile([owner, user]);
+    expect(pendingDuringSetup).toBe(true);
+    await must(call);
+    expect(k.plugins.map((p) => p.id)).toContain("late");
+  });
+});
+
 describe("kernel dispose", () => {
   it("a failed teardown still closes the hook batch", async () => {
     const rt = new KernelRuntime({}, () => undefined);
@@ -105,9 +141,12 @@ describe("kernel dispose", () => {
   it("dispose after a failed dispose returns the same rejected promise", async () => {
     const k = createKernel();
     vi.spyOn(KernelRuntime.prototype, "disposeAll").mockRejectedValue(new Error("stuck"));
-    const first = k.dispose();
-    await expect(first).rejects.toThrow("stuck");
-    expect(k.dispose()).toBe(first);
-    vi.restoreAllMocks();
+    try {
+      const first = k.dispose();
+      await expect(first).rejects.toThrow("stuck");
+      expect(k.dispose()).toBe(first);
+    } finally {
+      vi.restoreAllMocks();
+    }
   });
 });

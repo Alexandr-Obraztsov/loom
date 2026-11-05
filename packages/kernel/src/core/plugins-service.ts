@@ -11,8 +11,15 @@ import type { PluginDefinition, ServiceRef } from "./types.js";
  * `reload` called while the calling plugin is being set up or torn down reject
  * with a `SETUP_FAILED` whose `details.causeCode` is `"REENTRANT_RECONCILE"`
  * (the pass that runs the callback then fails with the same `causeCode`).
- * Once the callback returned, the plugin may call the service freely. Calls
- * made through `Kernel.services` by the host are never refused.
+ * Once the callback returned, the plugin may call the service freely.
+ *
+ * Detected: only a plugin's own handle used during its own setup/teardown.
+ * Not detected: another plugin's handle (X passes its handle to Y through a
+ * service or a tap and Y's setup awaits it), calls by the host through
+ * `Kernel.services` awaited from a setup, and a timer of an old instance firing
+ * while the same id reloads. These calls are not refused (background and host
+ * calls legitimately queue behind the pass), but awaiting any PluginsService
+ * mutation from a setup or teardown deadlocks the pass.
  *
  * Plugins can change one catalogue entry at a time but cannot trigger a full
  * `reconcile()`: replacing the whole plugin set belongs to the host that
@@ -115,6 +122,10 @@ export function createPluginsService(host: PluginsServiceHost): PluginsService {
 }
 
 /**
+ * Each `ctx.use(PluginsRef)` returns a new wrapper. The guard is keyed by plugin id and `isBusy()`,
+ * so it covers exactly a plugin's own handle during its own setup or teardown; see `PluginsService`
+ * for the paths it does not detect.
+ *
  * The view of `service` handed to plugin `pluginId`: the calls that would queue behind a reconcile
  * reject while `isBusy()` (the plugin's setup or teardown is running) instead of waiting for it forever.
  */
