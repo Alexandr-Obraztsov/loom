@@ -168,6 +168,8 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
       },
       has: (_t, prop) => Reflect.has(current(), prop),
       ownKeys: () => Reflect.ownKeys(current()),
+      // keeps a class instance's prototype chain visible through the proxy (inherited methods, `instanceof`)
+      getPrototypeOf: () => Reflect.getPrototypeOf(current()),
       getOwnPropertyDescriptor(_t, prop) {
         const d = Reflect.getOwnPropertyDescriptor(current(), prop);
         return d && { ...d, configurable: true };
@@ -175,6 +177,7 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
       set: readOnly("set a property"),
       defineProperty: readOnly("define a property"),
       deleteProperty: readOnly("delete a property"),
+      preventExtensions: readOnly("prevent extensions"),
     },
   );
 }

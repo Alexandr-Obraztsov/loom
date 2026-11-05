@@ -5,9 +5,10 @@
 
 **Статус:** этап ядра завершён — плагины и зависимости, живые сервисы, хуки, события,
 дерево расширений с переиспользованием узлов, live-reconcile с откатом, RPC между
-процессами, загрузчик плагинов с диска. Оболочки IDE пока нет.
+процессами, загрузчик плагинов с диска. Есть минимальная сборка: Electron-оболочка с чатом к Claude Code.
 
 - Ядро: [docs/kernel/README.md](docs/kernel/README.md) — понятия, коды ошибок, гарантии, производительность, ограничения
+- Минимальная сборка (десктоп на Electron): [docs/minimal-build.md](docs/minimal-build.md) — запуск, состав, ограничения
 - Спецификация: [docs/superpowers/specs/2026-11-04-loom-design.md](docs/superpowers/specs/2026-11-04-loom-design.md)
 
 ## Проверки
@@ -23,7 +24,7 @@ pnpm test:perf      # ограничители производительнос�
 pnpm bench          # бенчмарки ядра (vitest bench)
 ```
 
-CI (`.github/workflows/ci.yml`, Node 22 и 24) запускает `check`, `test:coverage` и `test:perf`.
+CI (`.github/workflows/ci.yml`, Node 22 и 24) запускает `check`, `test:coverage` и `test:perf`; отдельная задача `e2e` гоняет Playwright-смоук десктопа под xvfb.
 
 ## Лицензия
 

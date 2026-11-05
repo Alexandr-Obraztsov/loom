@@ -1,0 +1,11 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@loom/kernel": ["../../packages/kernel/src/index.ts"],
+      "@loom/sdk": ["../../packages/sdk/src/index.ts"],
+      "@loom/react": ["../../packages/react/src/index.ts"]
+    }
+  },
+  "include": ["src", "test"]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@loom/plugin-acp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/api.ts"
+  },
+  "loom": {
+    "id": "acp",
+    "main": "./src/main.ts",
+    "renderer": "./src/renderer.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "echo \"no benchmarks yet\""
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.4.0",
+    "@loom/host": "workspace:*",
+    "@loom/sdk": "workspace:*"
+  }
+}

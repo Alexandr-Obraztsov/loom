@@ -1,7 +1,12 @@
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
-import { boundariesConfig, exportRules, platformNeutralConfigs } from "./eslint.rules.js";
+import {
+  boundariesConfig,
+  exportRules,
+  platformNeutralConfigs,
+  workspaceConfigs,
+} from "./eslint.rules.js";
 
 export default defineConfig(
   {
@@ -11,6 +16,9 @@ export default defineConfig(
       "**/.turbo/**",
       "node_modules/**",
       "tools/lint-fixtures/**",
+      "plugins/*/test/fixtures/**",
+      "apps/*/out/**",
+      "apps/*/e2e/*.mjs",
     ],
   },
   js.configs.recommended,
@@ -30,7 +38,12 @@ export default defineConfig(
     },
   },
   {
-    files: ["*.config.{js,ts,cjs}"],
+    files: ["*.config.{js,ts,cjs}", "apps/*/*.config.ts"],
+    rules: { "no-restricted-exports": "off" },
+  },
+  {
+    // plugin entries default-export their definePlugin(...)
+    files: ["plugins/*/src/{main,renderer}.{ts,tsx}"],
     rules: { "no-restricted-exports": "off" },
   },
   {
@@ -42,5 +55,6 @@ export default defineConfig(
     languageOptions: { sourceType: "commonjs", globals: { module: "writable" } },
   },
   boundariesConfig,
+  ...workspaceConfigs,
   ...platformNeutralConfigs,
 );

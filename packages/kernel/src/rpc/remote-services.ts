@@ -1,9 +1,25 @@
 import { kernelInternals } from "../core/kernel.js";
 import type { Kernel } from "../core/kernel.js";
-import type { PluginDefinition, ServiceRef } from "../core/types.js";
+import type { PluginContext, PluginDefinition, ServiceRef } from "../core/types.js";
 import { channelOf } from "./endpoint.js";
 import type { RpcEndpoint } from "./endpoint.js";
 import { remoteError } from "./protocol.js";
+
+/**
+ * The data member `name` of `service`, found on the instance or up its prototype chain (stopping
+ * before Object.prototype / Function.prototype). Only property descriptors are read, so accessors
+ * are never invoked; `constructor` and `__proto__` are never exposed.
+ */
+function memberOf(service: object, name: string): unknown {
+  if (name === "constructor" || name === "__proto__") return undefined;
+  let object: object | null = service;
+  while (object !== null && object !== Object.prototype && object !== Function.prototype) {
+    const descriptor = Object.getOwnPropertyDescriptor(object, name);
+    if (descriptor) return descriptor.value as unknown;
+    object = Object.getPrototypeOf(object) as object | null;
+  }
+  return undefined;
+}
 
 /**
  * Serves each ref over `endpoint` under its ref id. Every call resolves the kernel's current
@@ -18,13 +34,14 @@ export function exposeServices(kernel: Kernel, endpoint: RpcEndpoint, refs: read
   });
   const removers = refs.map((ref) =>
     endpoint.handle(ref.id, async (method, args) => {
-      const service = kernel.services.use(ref) as Record<string, unknown>;
-      // only the service's own enumerable members: `constructor` and prototype members are not callable remotely
-      const member = Object.hasOwn(service, method) && Object.prototype.propertyIsEnumerable.call(service, method) ? service[method] : undefined;
+      const service = kernel.services.use(ref);
+      const member = memberOf(service, method);
       if (typeof member !== "function") {
         throw remoteError(`Service "${ref.id}" has no method "${method}"`);
       }
-      return (await Reflect.apply(member, service, args)) as unknown;
+      // called through the service proxy's forwarding wrapper, which binds `this` to the real implementation
+      const call = (service as Record<string, (...a: unknown[]) => unknown>)[method] as (...a: unknown[]) => unknown;
+      return await call(...args);
     }),
   );
   return () => {
@@ -62,6 +79,25 @@ export interface RemoteServicesOptions {
 }
 
 /**
+ * Provides each ref, on `ctx`, as an async proxy to services exposed on the other side of
+ * `endpoint` (see `exposeServices`): every method returns a Promise that performs
+ * `endpoint.call(ref.id, method, args)`. For plugins whose endpoint only becomes available
+ * inside setup (e.g. taken from `use(HostRef)` on the renderer side); protocol errors of the
+ * endpoint go to `kernel.error` and the subscription is released when the plugin is disposed.
+ */
+export function provideRemoteServices(
+  ctx: PluginContext,
+  endpoint: RpcEndpoint,
+  refs: readonly ServiceRef<object>[],
+): void {
+  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
+  const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
+    ctx.emit("kernel.error", error);
+  });
+  ctx.onDispose(off);
+}
+
+/**
  * A plugin that provides each ref as an async proxy to services exposed on the other side of
  * `endpoint` (see `exposeServices`): every method returns a Promise that performs
  * `endpoint.call(ref.id, method, args)`. As an ordinary provider it takes part in dependsOn
@@ -74,11 +110,7 @@ export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefi
     id,
     version,
     setup(ctx) {
-      for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id));
-      const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
-        ctx.emit("kernel.error", error);
-      });
-      ctx.onDispose(off);
+      provideRemoteServices(ctx, endpoint, refs);
     },
   };
 }

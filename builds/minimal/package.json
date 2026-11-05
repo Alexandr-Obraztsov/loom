@@ -1,0 +1,27 @@
+{
+  "name": "@loom/build-minimal",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "loom": {
+    "build": true,
+    "plugins": [
+      "@loom/plugin-storage",
+      "@loom/plugin-acp",
+      "@loom/plugin-claude-code",
+      "@loom/plugin-app",
+      "@loom/plugin-layout-bare",
+      "@loom/plugin-chat",
+      "@loom/plugin-composer"
+    ]
+  },
+  "dependencies": {
+    "@loom/plugin-acp": "workspace:*",
+    "@loom/plugin-app": "workspace:*",
+    "@loom/plugin-chat": "workspace:*",
+    "@loom/plugin-claude-code": "workspace:*",
+    "@loom/plugin-composer": "workspace:*",
+    "@loom/plugin-layout-bare": "workspace:*",
+    "@loom/plugin-storage": "workspace:*"
+  }
+}

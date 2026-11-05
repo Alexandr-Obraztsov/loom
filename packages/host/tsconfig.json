@@ -1,0 +1,7 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": { "@loom/kernel": ["../kernel/src/index.ts"] }
+  },
+  "include": ["src", "test"]
+}

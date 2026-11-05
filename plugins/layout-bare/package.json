@@ -1,0 +1,27 @@
+{
+  "name": "@loom/plugin-layout-bare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "loom": {
+    "id": "layout-bare",
+    "renderer": "./src/renderer.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "bench": "echo \"no benchmarks yet\""
+  },
+  "dependencies": {
+    "@loom/plugin-app": "workspace:*",
+    "@loom/react": "workspace:*",
+    "@loom/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/react": "^16.3.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  }
+}

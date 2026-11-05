@@ -5,3 +5,5 @@ coverage/
 .superpowers/
 .DS_Store
 temp/
+out/
+test-results/

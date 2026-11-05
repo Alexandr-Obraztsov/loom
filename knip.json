@@ -8,9 +8,56 @@
       "entry": ["src/index.ts", "src/node/index.ts", "test/**/*.test.ts", "bench/**/*.bench.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts", "bench/**/*.ts"]
     },
+    "packages/host": {
+      "entry": ["src/index.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
     "packages/sdk": {
       "entry": ["src/index.ts", "test/**/*.test.ts"],
       "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/react": {
+      "entry": ["src/index.ts", "test/**/*.test.{ts,tsx}"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/acp": {
+      "entry": ["src/main.ts", "src/renderer.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "plugins/claude-code": {
+      "entry": ["src/main.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "plugins/storage": {
+      "entry": ["src/main.ts", "test/**/*.test.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "plugins/app": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/layout-bare": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/chat": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "plugins/composer": {
+      "entry": ["src/renderer.tsx", "test/**/*.test.tsx"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.{ts,tsx}"]
+    },
+    "apps/desktop": {
+      "entry": ["e2e/*.test.ts", "e2e/stub-agent.mjs", "test/**/*.test.ts"],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "vite/**/*.ts", "e2e/**/*.{ts,mjs}"],
+      "ignoreDependencies": ["@loom/build-minimal", "@agentclientprotocol/claude-agent-acp"],
+      "ignoreBinaries": ["pgrep"]
+    },
+    "builds/minimal": {
+      "entry": [],
+      "project": [],
+      "ignoreDependencies": ["@loom/plugin-.*"]
     }
   },
   "ignore": ["tools/lint-fixtures/**"]
