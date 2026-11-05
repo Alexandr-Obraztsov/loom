@@ -1,8 +1,8 @@
-import type { Sessions,SessionSnapshot } from "@loom/plugin-acp";
+import type { Sessions, SessionSnapshot } from "@loom/plugin-acp";
 import { SessionsRef } from "@loom/plugin-acp";
 import { Render, useHookRunner, useService } from "@loom/react";
 import type { ResolvedNode, ServiceRef } from "@loom/sdk";
-import { createServiceRef,HostRef } from "@loom/sdk";
+import { createServiceRef, HostRef } from "@loom/sdk";
 import type { ReactNode, Ref, UIEvent } from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 

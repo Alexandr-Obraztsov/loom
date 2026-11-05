@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import type { Kernel } from "@loom/kernel";
 import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
-import { definePlugin,HostRef } from "@loom/sdk";
+import { definePlugin, HostRef } from "@loom/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Storage } from "../src/api.js";

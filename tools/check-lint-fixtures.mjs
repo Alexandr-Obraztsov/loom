@@ -90,6 +90,10 @@ const expected = {
   [`${rd}/max-params.ts`]: "max-params",
   [`${rd}/switch-exhaustiveness.ts`]: "@typescript-eslint/switch-exhaustiveness-check",
   [`${rd}/naming-boolean.ts`]: "@typescript-eslint/naming-convention",
+  [`${rd}/naming-parameter.ts`]: "@typescript-eslint/naming-convention",
+  [`${rd}/naming-class-property.ts`]: "@typescript-eslint/naming-convention",
+  // object-literal keys and type properties are exempt on purpose (see readabilityConfig)
+  [`${rd}/naming-skipped.ts`]: null,
   [`${rd}/naming-interface.ts`]: "@typescript-eslint/naming-convention",
   [`${rd}/sort-imports.ts`]: "simple-import-sort/imports",
   [`${rd}/sort-exports.ts`]: "simple-import-sort/exports",

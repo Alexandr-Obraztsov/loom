@@ -1,7 +1,7 @@
 import { ClientApp, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import type { HookRef } from "@loom/sdk";
 
-import type { AgentRegistry, AgentSpec, Sessions,SessionSnapshot } from "../api.js";
+import type { AgentRegistry, AgentSpec, Sessions, SessionSnapshot } from "../api.js";
 import { AcpError, PromptHook, ToolCallHook } from "../api.js";
 import { PermissionBroker } from "./permissions.js";
 import type { AgentLink, ExitInfo, Launch } from "./process.js";

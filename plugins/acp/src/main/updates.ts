@@ -124,14 +124,42 @@ export class SessionLog {
     for (const w of [...this.waiters]) if (this.seq > w.after) w.wake();
   }
 
+  /**
+   * One entry per update kind: a new kind in `SessionUpdate` fails to compile until it is decided here.
+   * `undefined` = not shown in the timeline; a kind the agent sends outside the union falls through too.
+   */
+  private static readonly HANDLERS: {
+    [K in SessionUpdate["sessionUpdate"]]: ((log: SessionLog, update: Extract<SessionUpdate, { sessionUpdate: K }>) => void) | undefined;
+  } = {
+    user_message_chunk: (log, u) => {
+      log.appendText("user", textOf(u.content));
+    },
+    agent_message_chunk: (log, u) => {
+      log.appendText("agent", textOf(u.content));
+    },
+    agent_thought_chunk: (log, u) => {
+      log.appendText("thought", textOf(u.content));
+    },
+    tool_call: (log, u) => {
+      log.upsertTool(u);
+    },
+    tool_call_update: (log, u) => {
+      log.upsertTool(u);
+    },
+    available_commands_update: undefined,
+    compaction_summary_chunk: undefined,
+    compaction_update: undefined,
+    config_option_update: undefined,
+    current_mode_update: undefined,
+    notice: undefined,
+    plan: undefined,
+    session_info_update: undefined,
+    usage_update: undefined,
+  };
+
   private applyUpdate(update: SessionUpdate): void {
-    // Other update kinds (plans, modes, usage, ...) are not shown in the timeline.
-    if (update.sessionUpdate === "user_message_chunk") this.appendText("user", textOf(update.content));
-    else if (update.sessionUpdate === "agent_message_chunk") this.appendText("agent", textOf(update.content));
-    else if (update.sessionUpdate === "agent_thought_chunk") this.appendText("thought", textOf(update.content));
-    else if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
-      this.upsertTool(update);
-    }
+    const handler = SessionLog.HANDLERS[update.sessionUpdate] as ((log: SessionLog, u: SessionUpdate) => void) | undefined;
+    handler?.(this, update);
   }
 
   private appendText(kind: TextKind, text: string): void {

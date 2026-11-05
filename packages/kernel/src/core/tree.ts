@@ -75,7 +75,15 @@ function sameFingerprint(f: Fingerprint, frame: Frame, parentPlugin: string | un
   );
 }
 
-function inputError(p: Placed, [name, spec]: readonly [string, InputSpec], all: readonly ResolvedNode[]): LoomError | undefined {
+/** One declared input of a node with the children attached to it (`healthy`: those without errors). */
+interface InputSlot {
+  readonly name: string;
+  readonly spec: InputSpec;
+  readonly all: readonly ResolvedNode[];
+  readonly healthy: readonly ResolvedNode[];
+}
+
+function inputError(p: Placed, { name, spec, all, healthy }: InputSlot): LoomError | undefined {
   if (!spec.multiple && all.length > 1) {
     const ids = all.map((n) => n.id).join(", ");
     return new LoomError("EXTENSION_CONFLICT", `Input "${name}" of "${p.id}" accepts one extension but got ${String(all.length)}: ${ids}`, {
@@ -83,7 +91,7 @@ function inputError(p: Placed, [name, spec]: readonly [string, InputSpec], all: 
       details: { input: name, children: all.map((n) => n.id) },
     });
   }
-  if (spec.required && all.every((n) => n.errors.length > 0)) {
+  if (spec.required && healthy.length === 0) {
     return new LoomError("EXTENSION_INPUT_MISMATCH", `Required input "${name}" of "${p.id}" has no usable extension attached`, {
       pluginIds: [p.pluginId],
       details: { input: name },
@@ -100,11 +108,10 @@ function wire(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>): { shown:
   if (p.conflict) {
     errors.push(new LoomError("EXTENSION_CONFLICT", `Extension "${p.id}" is provided by several plugins: ${p.conflict.join(", ")}`, { pluginIds: p.conflict, details: { id: p.id } }));
   }
-  for (const entry of Object.entries(p.inputs ?? {})) {
-    const [name, spec] = entry;
+  for (const [name, spec] of Object.entries(p.inputs ?? {})) {
     const all = byInput.get(name) ?? [];
     const healthy = all.filter((n) => n.errors.length === 0);
-    const bad = inputError(p, entry, all);
+    const bad = inputError(p, { name, spec, all, healthy });
     if (bad) errors.push(bad);
     shown[name] = spec.multiple || all.length > 1 ? all : all[0];
     given[name] = spec.multiple ? healthy : healthy[0];

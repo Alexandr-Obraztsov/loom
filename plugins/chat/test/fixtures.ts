@@ -1,4 +1,4 @@
-import type { SessionItem, Sessions,SessionSnapshot } from "@loom/plugin-acp";
+import type { SessionItem, Sessions, SessionSnapshot } from "@loom/plugin-acp";
 
 /**
  * Памятная реализация Sessions с семантикой waitUpdates как у acp SessionLog:

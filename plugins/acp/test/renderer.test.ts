@@ -11,7 +11,7 @@ import {
   createServiceRef,
   exposeServices,
 } from "@loom/kernel";
-import { definePlugin,HostRef } from "@loom/sdk";
+import { definePlugin, HostRef } from "@loom/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentRegistry, AgentSpec, Sessions } from "../src/api.js";

@@ -1,11 +1,11 @@
 import type { Kernel, PluginDefinition } from "@loom/kernel";
 import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
-import type { Sessions,SessionSnapshot } from "@loom/plugin-acp";
+import type { Sessions, SessionSnapshot } from "@loom/plugin-acp";
 import { SessionsRef } from "@loom/plugin-acp";
 import type { Navigation } from "@loom/plugin-app";
 import { NavigationRef, useCurrentScreen } from "@loom/plugin-app";
 import { KernelProvider, Render, RenderRoot } from "@loom/react";
-import { definePlugin,HostRef } from "@loom/sdk";
+import { definePlugin, HostRef } from "@loom/sdk";
 import type { RenderResult } from "@testing-library/react";
 import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
