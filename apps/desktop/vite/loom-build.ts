@@ -42,11 +42,12 @@ export function loomBuild(options: { readonly buildDir: string }): Plugin {
   return {
     name: "loom-build",
     resolveId(id) {
-      return id in MODULES ? PREFIX + id : undefined;
+      return Object.hasOwn(MODULES, id) ? PREFIX + id : undefined;
     },
     load(id) {
-      const side = MODULES[id.slice(PREFIX.length)];
-      if (!id.startsWith(PREFIX) || side === undefined) return undefined;
+      const name = id.slice(PREFIX.length);
+      if (!id.startsWith(PREFIX) || !Object.hasOwn(MODULES, name)) return undefined;
+      const side = MODULES[name] as Side;
       const entries = pluginEntries(options.buildDir, side);
       const imports = entries.map(
         (file, i) => `import p${String(i)} from ${JSON.stringify(file)};`,

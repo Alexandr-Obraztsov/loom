@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,4 +69,30 @@ test("reloading the window cancels the pending permission of the running turn", 
 
   await app.close();
   await expect.poll(stubPids, { timeout: 15_000 }).toEqual([]);
+});
+
+test("the window cannot open or navigate to a foreign page", async () => {
+  const requests: string[] = [];
+  const server = createServer((req, res) => {
+    requests.push(req.url ?? "");
+    res.end("<title>foreign</title>");
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const foreign = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/`;
+  const { app, page } = await launch();
+  await expect(page.getByLabel("Сообщение")).toBeEnabled({ timeout: 30_000 });
+  const before = page.url();
+
+  const opened = await page.evaluate((url) => window.open(url) !== null, foreign);
+  expect(opened).toBe(false);
+  await page.evaluate((url) => {
+    location.href = url;
+  }, foreign);
+  await page.waitForTimeout(1000);
+
+  expect(page.url()).toBe(before);
+  expect(requests).toEqual([]);
+  expect(app.windows()).toHaveLength(1);
+  await app.close();
+  server.close();
 });

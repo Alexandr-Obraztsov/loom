@@ -3,6 +3,10 @@
 import { Readable, Writable } from "node:stream";
 import { AgentApp, PROTOCOL_VERSION, ndJsonStream } from "@agentclientprotocol/sdk";
 
+// Stays alive after stdin closes, so only a signal ends it: the orphan check then proves that
+// the app killed it on quit instead of the agent exiting by itself on EOF.
+setInterval(() => undefined, 1000);
+
 let sessions = 0;
 const say = (client, sessionId, text) =>
   client.notify("session/update", {

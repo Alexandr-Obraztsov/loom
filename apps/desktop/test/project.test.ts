@@ -9,11 +9,11 @@ const scratch = (): string => mkdtempSync(join(tmpdir(), "loom-project-"));
 describe("resolveProjectDir", () => {
   it("prefers LOOM_PROJECT_DIR and never asks", async () => {
     const dir = await resolveProjectDir({
-      env: "/from/env",
+      env: tmpdir(),
       lastFile: join(scratch(), "last-project.json"),
       pick: () => Promise.reject(new Error("must not ask")),
     });
-    expect(dir).toBe("/from/env");
+    expect(dir).toBe(tmpdir());
   });
 
   it("uses the last used folder while it still exists", async () => {
@@ -44,6 +44,26 @@ describe("resolveProjectDir", () => {
     expect(
       await resolveProjectDir({ env: undefined, lastFile, pick: () => Promise.resolve("/y") }),
     ).toBe("/y");
+  });
+
+  it("creates the data folder on the first run before remembering the pick", async () => {
+    const root = scratch();
+    const lastFile = join(root, "fresh", "userData", "last-project.json");
+    expect(
+      await resolveProjectDir({ env: undefined, lastFile, pick: () => Promise.resolve(root) }),
+    ).toBe(root);
+    expect(JSON.parse(readFileSync(lastFile, "utf8"))).toEqual({ dir: root });
+  });
+
+  it("rejects LOOM_PROJECT_DIR that is not an existing directory", async () => {
+    const lastFile = join(scratch(), "last-project.json");
+    await expect(
+      resolveProjectDir({
+        env: join(scratch(), "missing"),
+        lastFile,
+        pick: () => Promise.resolve("/x"),
+      }),
+    ).rejects.toThrow(/not a directory/);
   });
 
   it("returns undefined when the user cancels", async () => {

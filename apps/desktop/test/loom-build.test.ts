@@ -53,3 +53,13 @@ describe("loomBuild", () => {
     expect(load("virtual:loom/main-plugins")).toBeUndefined();
   });
 });
+
+describe("loomBuild prototype keys", () => {
+  it("does not treat inherited object keys as virtual modules", () => {
+    const plugin = loomBuild({ buildDir: fixture() });
+    const resolveId = plugin.resolveId as (id: string) => string | undefined;
+    const load = plugin.load as (id: string) => string | undefined;
+    expect(resolveId("toString")).toBeUndefined();
+    expect(load("\0toString")).toBeUndefined();
+  });
+});

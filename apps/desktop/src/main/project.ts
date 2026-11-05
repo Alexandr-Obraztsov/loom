@@ -1,4 +1,5 @@
-import { readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 export interface ProjectSources {
   /** `LOOM_PROJECT_DIR`. */
@@ -28,10 +29,17 @@ async function lastUsed(file: string): Promise<string | undefined> {
 
 /** The project folder: env override, else the last used one, else the user's pick (remembered). */
 export async function resolveProjectDir(sources: ProjectSources): Promise<string | undefined> {
-  if (sources.env) return sources.env;
+  if (sources.env) {
+    if (!(await isDirectory(sources.env)))
+      throw new Error(`LOOM_PROJECT_DIR is not a directory: ${sources.env}`);
+    return sources.env;
+  }
   const last = await lastUsed(sources.lastFile);
   if (last !== undefined) return last;
   const picked = await sources.pick();
-  if (picked !== undefined) await writeFile(sources.lastFile, JSON.stringify({ dir: picked }));
+  if (picked !== undefined) {
+    await mkdir(dirname(sources.lastFile), { recursive: true });
+    await writeFile(sources.lastFile, JSON.stringify({ dir: picked }));
+  }
   return picked;
 }
