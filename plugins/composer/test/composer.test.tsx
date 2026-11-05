@@ -113,6 +113,36 @@ describe("composer: отказы отправки", () => {
     );
   });
 
+  it("черновик, набранный во время ответа, переживает конец хода", async () => {
+    const sessions = new FakeSessions();
+    sessions.lockPrompt();
+    await bootReady(sessions);
+    await type("первый");
+    await pressEnter();
+    expect(field().value).toBe("");
+    await type("черновик");
+    sessions.releasePrompt();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(field().value).toBe("черновик");
+  });
+
+  it("отказ prompt не затирает новый черновик", async () => {
+    const sessions = new FakeSessions();
+    sessions.lockPrompt();
+    sessions.promptError = new Error("Агент завершился");
+    await bootReady(sessions);
+    await type("первый");
+    await pressEnter();
+    await type("второй");
+    sessions.releasePrompt();
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Не удалось отправить: Агент завершился",
+    );
+    expect(field().value).toBe("второй");
+  });
+
   it("отказ prompt сохраняет текст и показывает ошибку; повтор успешен", async () => {
     const sessions = new FakeSessions();
     sessions.promptError = new Error("Сессия занята");

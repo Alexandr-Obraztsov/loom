@@ -32,15 +32,18 @@ function ActiveField(props: { sessionId: string; busy: boolean }): ReactNode {
     if (sending || value === "") return;
     setError(undefined);
     setSending(true);
+    // the field empties at once: the prompt resolves only when the whole turn ends, and a draft
+    // typed during the reply must survive it
+    setText("");
     void sessions
       .prompt(sessionId, value)
       .then(() => {
         setSending(false);
-        setText("");
       })
       .catch((cause: unknown) => {
         setSending(false);
         setError(errorMessage(cause));
+        setText((draft) => (draft === "" ? value : draft)); // nothing typed since: give it back
       });
   };
 

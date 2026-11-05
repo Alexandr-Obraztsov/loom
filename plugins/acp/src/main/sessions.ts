@@ -51,8 +51,6 @@ export class SessionsManager implements Sessions {
   private starting: Promise<Rec> | undefined;
   /** Agents whose handshake is still running; `dispose` must reach them too. */
   private readonly pendingStarts = new Set<AgentLink>();
-  /** Agents whose handshake is still running; `dispose` must reach them too. */
-  private readonly starting_ = new Set<AgentLink>();
 
   constructor(private readonly deps: SessionsDeps) {}
 

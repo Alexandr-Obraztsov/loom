@@ -46,9 +46,11 @@ function openWindow(link: Link, projectDir: string): BrowserWindow {
     if (event.sender !== webContents) throw new Error("Unknown sender");
     return projectDir;
   });
-  // a new document (reload, navigation) or a dead renderer ends the current connection
+  // a new app document (reload) or a dead renderer ends the current connection; a foreign
+  // navigation is still announced here before `will-navigate` cancels it, so it must not count
   webContents.on("did-start-navigation", (details) => {
-    if (details.isMainFrame && !details.isSameDocument) link.close();
+    if (details.isMainFrame && !details.isSameDocument && isAppUrl(target, details.url))
+      link.close();
   });
   webContents.on("render-process-gone", () => {
     link.close();

@@ -80,6 +80,14 @@ test("the window cannot open or navigate to a foreign page", async () => {
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const foreign = `http://127.0.0.1:${String((server.address() as AddressInfo).port)}/`;
+  try {
+    await blockedThenChat(foreign, requests);
+  } finally {
+    server.close();
+  }
+});
+
+async function blockedThenChat(foreign: string, requests: readonly string[]): Promise<void> {
   const { app, page } = await launch();
   await expect(page.getByLabel("Сообщение")).toBeEnabled({ timeout: 30_000 });
   const before = page.url();
@@ -94,6 +102,28 @@ test("the window cannot open or navigate to a foreign page", async () => {
   expect(page.url()).toBe(before);
   expect(requests).toEqual([]);
   expect(app.windows()).toHaveLength(1);
+  // the blocked attempt must not cost the page its connection. Playwright locators keep waiting
+  // for the cancelled navigation, so the page is driven through the DOM here.
+  await page.evaluate(() => {
+    const box = document.querySelector<HTMLTextAreaElement>('[aria-label="Сообщение"]');
+    if (!box) throw new Error("no composer");
+    // React tracks the value through the prototype setter
+    Reflect.set(HTMLTextAreaElement.prototype, "value", "привет", box);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  const allowButton = (): Promise<boolean> =>
+    page.evaluate(() => {
+      const buttons = document.querySelectorAll<HTMLButtonElement>(
+        '[data-permission="pending"] button',
+      );
+      const allow = Array.from(buttons).find((b) => b.textContent === "Разрешить");
+      allow?.click();
+      return allow !== undefined;
+    });
+  await expect.poll(allowButton, { timeout: 30_000 }).toBe(true);
+  const replied = (): Promise<boolean> =>
+    page.evaluate(() => document.body.innerText.includes("эхо: привет"));
+  await expect.poll(replied, { timeout: 30_000 }).toBe(true);
   await app.close();
-  server.close();
-});
+}
