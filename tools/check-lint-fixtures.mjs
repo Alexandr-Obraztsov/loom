@@ -35,6 +35,8 @@ const expected = {
   // no layer of the kernel depends on the SDK
   [`${k}/core/imports-sdk.ts`]: IMPORTS,
   [`${k}/core/imports-sdk-subpath.ts`]: IMPORTS,
+  [`${k}/rpc/imports-sdk-subpath.ts`]: IMPORTS,
+  [`${k}/node/imports-sdk-subpath.ts`]: IMPORTS,
   [`${k}/rpc/imports-sdk.ts`]: IMPORTS,
   [`${k}/node/imports-sdk.ts`]: IMPORTS,
   // core and rpc stay platform-neutral: no Node globals either
