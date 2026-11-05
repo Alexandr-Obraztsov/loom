@@ -12,6 +12,8 @@ import type { ServiceRegistry } from "./services.js";
 import { buildTree } from "./tree.js";
 import type { TreeConfig, TreeResult } from "./tree.js";
 import type { PluginDefinition, ServiceRef } from "./types.js";
+import { PluginsRef, refuseReentrancy } from "./plugins-service.js";
+import type { PluginsService } from "./plugins-service.js";
 
 export const KERNEL_ID = "kernel";
 
@@ -59,6 +61,14 @@ export class KernelRuntime {
   private readonly running = new Map<string, () => Promise<void>>();
   private readonly states = new Map<string, Record<string, unknown>>();
   private delivering = false;
+  /** Plugins whose setup or teardown is running now; their calls to PluginsService would wait for this very pass. */
+  private readonly busy = new Set<string>();
+  /**
+   * Service version bumps of a rolled-back pass, per ref id. The rollback re-registers what the pass
+   * removed and restores the previous state, so the version tree nodes compare against is `raw - bias`:
+   * a no-op reconcile after a rollback finds every version unchanged and reuses the tree.
+   */
+  private bias = new Map<string, number>();
   /** Owner -> position in the resolved order; ties in hooks, events and decorators break by it. */
   private ranks = new Map<string, number>();
   private readonly rankOf = (owner: string): number =>
@@ -120,10 +130,11 @@ export class KernelRuntime {
     const force = req.freshServices ? new Set(desired.map((d) => d.id)) : req.force;
     const plan = planReconcile(this.active, desired, force, req.config);
     const previous = { services: this.services, config: this.config };
+    const bumps = new Map<string, number>();
+    const stopCounting = this.services.onChange((id) => void bumps.set(id, (bumps.get(id) ?? 0) + 1));
     const resume = this.hooks.defer();
     try {
       this.pending = req.config;
-      this.rank(plan.order);
       if (req.freshServices) this.services = this.registry(req.config);
       try {
         await applyReconcile(plan, this.runtimeFor(plan, previous));
@@ -132,6 +143,8 @@ export class KernelRuntime {
         if (alive.length !== plan.current.length) {
           this.active = alive;
           this.tree = this.buildTree(this.tree);
+        } else {
+          for (const [id, count] of bumps) this.bias.set(id, (this.bias.get(id) ?? 0) + count);
         }
         resume();
         this.events.emit("plugins.failed", { error });
@@ -140,9 +153,10 @@ export class KernelRuntime {
       for (const id of plan.diff.removed) this.states.delete(id);
       this.active = plan.order;
       this.config = req.config;
-      this.rank(plan.order);
+      if (req.freshServices) this.bias = new Map();
       this.tree = this.buildTree(req.freshServices ? undefined : this.tree);
     } finally {
+      stopCounting();
       resume();
     }
     this.events.emit("plugins.changed", plan.diff);
@@ -167,11 +181,17 @@ export class KernelRuntime {
     this.events.removeOwner(KERNEL_ID);
   }
 
-  /** Ranks owners by `order` and re-sorts every registry, so a reload never moves registrations. No-op if no rank changed. */
+  /**
+   * Ranks owners by `order` and re-sorts every registry, so a reload never moves registrations.
+   * Registries are re-sorted only if an owner that was ranked before moved: owners added after (or
+   * removed from) the end change nothing for what is registered, and new registrations read `rankOf`.
+   * Called once the affected plugins are torn down, so a plugin being removed never sees its rank change.
+   */
   private rank(order: readonly PluginDefinition[]): void {
     const ranks = new Map(order.map((p, i) => [p.id, i]));
-    if (ranks.size === this.ranks.size && order.every((p, i) => this.ranks.get(p.id) === i)) return;
+    const moved = [...this.ranks].some(([id, rank]) => ranks.has(id) && ranks.get(id) !== rank);
     this.ranks = ranks;
+    if (!moved) return;
     this.hooks.reorder();
     this.events.reorder();
     this.services.reorder();
@@ -199,7 +219,9 @@ export class KernelRuntime {
       report: (e) => {
         this.report(e);
       },
+      // shallow on purpose: nested objects in `ctx.state` are the plugin's own and are shared, not copied
       snapshot: () => {
+        this.rank(plan.order);
         saved = new Map(plan.teardown.map((p) => [p.id, { ...this.states.get(p.id) }]));
       },
       restore: () => {
@@ -225,34 +247,48 @@ export class KernelRuntime {
       allowed: new Set([...Object.keys(def.dependsOn ?? {}), ...presentOptional(def, active)]),
       config: this.pending.plugins?.[def.id],
       state,
+      wrapUse: (ref, service) => this.guard(def.id, ref, service),
       services: this.services,
       hooks: this.hooks,
       events: this.events,
     });
     this.running.set(def.id, scoped.dispose);
+    this.busy.add(def.id);
     try {
       await def.setup?.(scoped.ctx);
     } catch (error) {
       await this.teardown(def.id);
       throw error;
+    } finally {
+      this.busy.delete(def.id);
     }
+  }
+
+  /** What `ctx.use` of plugin `id` returns: PluginsService refuses re-entrant calls while the plugin is busy. */
+  private guard<T extends object>(id: string, ref: ServiceRef<T>, service: T): T {
+    if (ref.id !== PluginsRef.id) return service;
+    return refuseReentrancy(service as unknown as PluginsService, id, () => this.busy.has(id)) as unknown as T;
   }
 
   private async teardown(id: string): Promise<void> {
     const dispose = this.running.get(id);
     if (!dispose) return;
     this.running.delete(id);
+    this.busy.add(id);
     try {
       await dispose();
     } catch (cause) {
       this.report(new LoomError("TAP_FAILED", `Disposing plugin "${id}" failed`, { pluginIds: [id], cause }));
+    } finally {
+      this.busy.delete(id);
     }
   }
 
   private buildTree(previous: TreeResult | undefined): TreeResult {
     const entries = treeEntries(this.active);
     const use = <T>(ref: ServiceRef<T>): T => this.use(ref as ServiceRef<T & object>);
-    const version = (refId: string): number => this.services.version({ id: refId, kind: "service" });
+    const version = (refId: string): number =>
+      this.services.version({ id: refId, kind: "service" }) - (this.bias.get(refId) ?? 0);
     return buildTree(entries, this.config, use, previous, version);
   }
 }

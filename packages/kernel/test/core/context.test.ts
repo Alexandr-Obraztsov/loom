@@ -93,6 +93,25 @@ describe("plugin context", () => {
     expect(dispose()).toBe(p);
   });
 
+  it("dispose removes the plugin's override and decorator, restoring the base service", async () => {
+    const { ctx, dispose, services } = make("P");
+    services.provide(ref, greeter("base"), "kernel");
+    ctx.override(ref, greeter("over"));
+    ctx.decorate(ref, (prev) => ({ greet: (n) => `deco(${prev.greet(n)})` }));
+    expect(services.use(ref, "kernel", new Set(["P"])).greet("x")).toBe("deco(over:x)");
+    await dispose();
+    expect(services.use(ref, "kernel", new Set(["P"])).greet("x")).toBe("base:x");
+  });
+
+  it("onDispose callbacks cannot use ctx: it is closed before they run", async () => {
+    const { ctx, dispose } = make("P");
+    let seen: LoomError | undefined;
+    ctx.onDispose(() => {
+      seen = codeOf(() => ctx.use(ref));
+    });
+    await dispose();
+    expect(seen?.code).toBe("DISPOSED");
+  });
 });
 
 describe("plugin context (use, state, dispose guard)", () => {
@@ -161,6 +180,9 @@ describe("plugin context (dispose race)", () => {
     expect(listener).not.toHaveBeenCalled();
   });
 
+});
+
+describe("plugin context (after dispose)", () => {
   it("methods after dispose throw DISPOSED", async () => {
     const { ctx, dispose } = make("P");
     await dispose();

@@ -40,7 +40,11 @@ export interface Kernel {
    * plugin against a fresh service registry (the registry fixes winners at creation).
    */
   setConfig(config: KernelConfig): Promise<void>;
-  /** Disposes all plugins in reverse order; afterwards every method throws or rejects with DISPOSED. */
+  /**
+   * Disposes all plugins in reverse order; afterwards every method throws or rejects with DISPOSED.
+   * Idempotent: every call returns the same promise, so if the first dispose fails, later calls
+   * return that same rejected promise rather than retrying.
+   */
   dispose(): Promise<void>;
 }
 
