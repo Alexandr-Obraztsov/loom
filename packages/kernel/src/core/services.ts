@@ -33,7 +33,10 @@ export interface ServiceRegistry {
   onChange(listener: (refId: string) => void): () => void;
   /** Re-sorts registrations by `rankOf`; refs whose active implementation changed get a new version. */
   reorder(): void;
-  /** Sizes of the registry's internal indexes; they return to their starting values once everything is removed. */
+  /**
+   * Sizes of the registry's internal indexes; they return to their starting values once everything is removed.
+   * @internal Diagnostics for tests; not part of the supported API.
+   */
   stats(): { readonly refs: number; readonly owners: number; readonly consumers: number };
 }
 
@@ -59,13 +62,19 @@ interface Books {
   readonly proxies: ProxyCache;
   readonly registered: Map<string, Set<RefState>>;
   readonly consumed: Map<string, Set<string>>;
+  /**
+   * States whose proxies were dropped from the cache but may still be held. Pruning a state must not strand such
+   * a proxy: when its ref is registered again the same state is revived (weakly held, so it is collected with the proxies).
+   */
+  readonly escaped: Map<string, WeakRef<RefState>>;
 }
 
-function stateOf(states: Map<string, RefState>, id: string): RefState {
-  let s = states.get(id);
+function stateOf(b: Books, id: string): RefState {
+  let s = b.states.get(id);
   if (!s) {
-    s = { id, version: 0, provides: [], overrides: [], decorators: [], resolved: undefined };
-    states.set(id, s);
+    s = b.escaped.get(id)?.deref() ?? { id, version: 0, provides: [], overrides: [], decorators: [], resolved: undefined };
+    b.escaped.delete(id);
+    b.states.set(id, s);
   }
   return s;
 }
@@ -92,7 +101,10 @@ function dropConsumer(b: Books, consumer: string): RefState[] {
     byConsumer?.delete(consumer);
     if (byConsumer?.size === 0) b.proxies.delete(refId);
     const s = b.states.get(refId);
-    if (s) touched.push(s);
+    if (s) {
+      touched.push(s);
+      b.escaped.set(refId, new WeakRef(s)); // a proxy of it may still be held by whoever leaked it
+    }
   }
   b.consumed.delete(consumer);
   return touched;
@@ -103,9 +115,9 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
   let seq = 0;
   /** Source of versions: one clock for all refs, so a ref that is dropped and later recreated never repeats a version. */
   let clock = 0;
-  const b: Books = { states: new Map(), proxies: new Map(), registered: new Map(), consumed: new Map() };
+  const b: Books = { states: new Map(), proxies: new Map(), registered: new Map(), consumed: new Map(), escaped: new Map() };
   const listeners = new Set<(refId: string) => void>();
-  const get = (id: string): RefState => stateOf(b.states, id);
+  const get = (id: string): RefState => stateOf(b, id);
   /** The active registration of `ref`, looked up without creating a state for a ref nobody registered on. */
   const activeOf = (ref: ServiceRef<unknown>): Impl | undefined => {
     const s = b.states.get(ref.id);
