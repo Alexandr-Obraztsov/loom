@@ -22,7 +22,6 @@ function make(spies: Record<string, ReturnType<typeof vi.fn>>): { defs: Record<s
 }
 
 describe("buildTree structural sharing", () => {
-
   it("unchanged build reuses previous node objects, skips factories and returns the previous result", () => {
     const spies: Record<string, ReturnType<typeof vi.fn>> = {};
     const { entries } = make(spies);
