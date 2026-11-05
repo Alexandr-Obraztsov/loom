@@ -188,8 +188,14 @@ describe("validatePlugin strictness", () => {
     ]);
   });
 
+  it("accepts build metadata and prereleases in the version", () => {
+    for (const version of ["1.0.0+build.5", "1.0.0-beta.1+sha.abc"]) {
+      expect(() => validatePlugin({ id: "a", version }), version).not.toThrow();
+    }
+  });
+
   it("rejects a v-prefixed version and an empty dependency range", () => {
-    expect(issuesOf({ id: "a", version: "v1.0.0" })).toHaveLength(1);
+    for (const version of ["v1.0.0", "=1.0.0", " 1.0.0"]) expect(issuesOf({ id: "a", version })).toHaveLength(1);
     expect(issuesOf({ id: "a", version: "1.0.0", dependsOn: { b: "" } })).toHaveLength(1);
     expect(issuesOf({ id: "a", version: "1.0.0", optionalDependsOn: { b: "" } })).toHaveLength(1);
   });

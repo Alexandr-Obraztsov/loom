@@ -21,8 +21,9 @@ function memo<A extends string[]>(fn: (...args: A) => boolean): (...args: A) => 
   };
 }
 
-// `valid` also accepts "v1.0.0" and "=1.0.0" (returning the cleaned string); a manifest must spell the version canonically.
-export const isVersion: (version: string) => boolean = memo((v) => valid(v) === v);
+// `valid` also accepts "v1.0.0", "=1.0.0" and surrounding whitespace (it cleans them); a manifest must start the version with its
+// major number and carry no padding. Prerelease and build metadata stay legal ("1.0.0-beta.1+sha.abc").
+export const isVersion: (version: string) => boolean = memo((v) => /^\d/.test(v) && v === v.trim() && valid(v) !== null);
 // `validRange("")` is "*"; an empty range in a manifest is a mistake, not "any version" (write "*" for that).
 export const isRange: (range: string) => boolean = memo((r) => r !== "" && validRange(r) !== null);
 export const inRange: (version: string, range: string) => boolean = memo((v, r) =>

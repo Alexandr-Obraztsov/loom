@@ -57,14 +57,21 @@ describe("plugins service catalogue", () => {
   });
 
   it.each(["enable", "disable", "uninstall"] as const)("%s of an unknown id rejects with PLUGIN_UNKNOWN and changes nothing", async (method) => {
-    const { svc, k } = await withService();
+    const { svc, k, log } = await withService();
+    await svc.install(plugin(log, "b"));
+    log.length = 0;
+    const before = { active: ids(k.plugins), list: svc.list() };
     const changed = vi.fn();
+    const failed = vi.fn();
     k.on("plugins.changed", changed);
+    k.on("plugins.failed", failed);
     const err = await rejection(svc[method]("nope"));
     expect(err.code).toBe("PLUGIN_UNKNOWN");
     expect(err.pluginIds).toEqual(["nope"]);
     expect(changed).not.toHaveBeenCalled();
-    expect(svc.list().map((p) => p.id)).toEqual(["host"]);
+    expect(failed).not.toHaveBeenCalled();
+    expect(log).toEqual([]); // no setup, no dispose: no reconcile pass ran
+    expect({ active: ids(k.plugins), list: svc.list() }).toEqual(before);
   });
 
   it("reload re-runs setup even for the same definition object and keeps enabled state", async () => {

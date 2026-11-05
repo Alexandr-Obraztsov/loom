@@ -17,8 +17,14 @@ describe("memoized semver predicates", () => {
   it("reject a v prefix and an empty range, which semver itself accepts", () => {
     expect(isVersion("v1.0.0")).toBe(false);
     expect(isVersion("=1.0.0")).toBe(false);
+    expect(isVersion(" 1.0.0")).toBe(false);
+    expect(isVersion("1.0.0 ")).toBe(false);
     expect(isRange("")).toBe(false);
     expect(isRange("*")).toBe(true);
+  });
+
+  it("accept prerelease and build metadata", () => {
+    for (const v of ["1.0.0+build.5", "1.0.0-beta.1+sha.abc", "1.0.0-rc.1"]) expect(isVersion(v), v).toBe(true);
   });
 
   it("stay correct after the bounded cache is dropped and refilled", () => {
