@@ -127,7 +127,7 @@ describe("performance guards: tree, services, hooks", () => {
 const syncHook = createHook<number, number>("perf.sync", { mode: "sync" });
 
 describe("performance guards: hooks in setup", () => {
-  it("tap + run per plugin in setup < 3x batch mode over 2000 taps of one hook", () => {
+  it("tap + run per plugin in setup <= 3x batch mode, floored at 4 ms, over 2000 taps of one hook", async ({ annotate }) => {
     const taps = 2000;
     const fill = (reg: ReturnType<typeof createHookRegistry>, i: number): void => {
       reg.tap(syncHook, `o${String(i)}`, { priority: i % 5 }, (c) => c); // answers without next(): the run costs ordering, not the chain
@@ -158,6 +158,7 @@ describe("performance guards: hooks in setup", () => {
     const inSetup = median(setupMode);
     // batch mode takes ~1 ms, so its timer noise alone could break a strict 3x; the floor keeps a 12 ms ceiling
     // (the quadratic re-sort this guards against costs ~800 ms)
+    await annotate(`setup/batch ratio ${(inSetup / batch).toFixed(2)} (${inSetup.toFixed(1)} ms vs ${batch.toFixed(1)} ms)`);
     expect(
       inSetup,
       `setup ${inSetup.toFixed(1)} ms vs batch ${batch.toFixed(1)} ms (ratio ${(inSetup / batch).toFixed(2)})`,

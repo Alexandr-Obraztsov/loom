@@ -134,3 +134,47 @@ describe("incremental insertion", () => {
     expect(reg.run(sync, [], (l) => l)).toEqual(["a", "c", "d"]);
   });
 });
+
+describe("three-owner cycle", () => {
+  it("reports the pair whose edge is dropped, each pair once while it stays dropped", () => {
+    const errors: LoomError[] = [];
+    const reg = createHookRegistry({ onError: (e) => errors.push(e) });
+    const pairs = (): string[] => errors.map((e) => [...e.pluginIds].sort().join("|"));
+    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
+    reg.tap(sync, "b", { before: ["c"] }, pass("b"));
+    expect(pairs()).toEqual([]);
+    reg.tap(sync, "c", { before: ["a"] }, pass("c")); // closes the cycle: c->a is dropped
+    expect(pairs()).toEqual(["a|c"]);
+    reg.tap(sync, "z", {}, pass("z")); // same dropped edge, no new report
+    reg.removeOwner("z");
+    expect(pairs()).toEqual(["a|c"]);
+    expect(reg.run(sync, [], (l) => l)).toEqual(["a", "b", "c"]);
+  });
+
+  it("when ranks move the dropped edge to another pair, that pair is reported once, the second reorder adds nothing", () => {
+    const ranks = new Map([
+      ["a", 0],
+      ["b", 1],
+      ["c", 2],
+    ]);
+    const errors: LoomError[] = [];
+    const reg = createHookRegistry({
+      onError: (e) => errors.push(e),
+      rankOf: (o) => ranks.get(o) ?? 9,
+    });
+    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
+    reg.tap(sync, "b", { before: ["c"] }, pass("b"));
+    reg.tap(sync, "c", { before: ["a"] }, pass("c"));
+    const pairs = (): string[] => errors.map((e) => [...e.pluginIds].sort().join("|"));
+    const first = pairs();
+    expect(first).toHaveLength(1);
+    ranks.set("a", 2).set("b", 0).set("c", 1);
+    reg.reorder();
+    reg.reorder();
+    const after = pairs();
+    expect(after.slice(0, 1)).toEqual(first);
+    expect(after.length).toBeLessThanOrEqual(2);
+    expect(new Set(after).size).toBe(after.length);
+    expect(after).toEqual(["a|c", "a|b"]); // the cycle still exists, a different edge is dropped now: a new pair, reported once
+  });
+});

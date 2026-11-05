@@ -108,11 +108,8 @@ const isConstrained = (t: Tap): boolean => t.before.length > 0 || t.after.length
 
 /** Binary-inserts a constraint-free `tap` (newest registration) into the plain-sorted order. */
 function insertSorted(state: HookState, tap: Tap, rankOf: RankOf | undefined): void {
-  let rank = state.ranks.get(tap.owner);
-  if (rank === undefined) {
-    rank = rankOf?.(tap.owner) ?? 0;
-    state.ranks.set(tap.owner, rank);
-  }
+  const rank = state.ranks.get(tap.owner) ?? rankOf?.(tap.owner) ?? 0;
+  state.ranks.set(tap.owner, rank);
   const list = state.ordered;
   // first position whose tap sorts strictly after the new one; the newest seq goes behind equals
   let lo = 0;
@@ -122,7 +119,7 @@ function insertSorted(state: HookState, tap: Tap, rankOf: RankOf | undefined): v
     const t = list[mid] as Tap;
     const after =
       t.priority < tap.priority ||
-      (t.priority === tap.priority && (state.ranks.get(t.owner) as number) > rank);
+      (t.priority === tap.priority && (state.ranks.get(t.owner) ?? 0) > rank);
     if (after) hi = mid;
     else lo = mid + 1;
   }

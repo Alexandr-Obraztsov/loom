@@ -162,45 +162,102 @@ describe("hook ordering properties (contradictions)", () => {
   });
 });
 
+const OWNERS = ["a", "b", "c", "d", "e"] as const;
+const label = (owner: string, i: number): string => `${owner}${String(i)}`;
+type Spec = { owner: string; priority: number; before: string[]; after: string[] };
+
+/** Registers `specs` in one batch with the given ranks: the reference every incremental order must match. */
+function fresh(
+  specs: readonly Spec[],
+  ranks: ReadonlyMap<string, number>,
+): { order: string[]; pairs: Set<string> } {
+  const errors: LoomError[] = [];
+  const reg = createHookRegistry({
+    onError: (e) => errors.push(e),
+    rankOf: (o) => ranks.get(o) ?? 0,
+  });
+  const end = reg.defer();
+  specs.forEach((s, i) => reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)])));
+  end();
+  return {
+    order: reg.run(hook, [], (c) => c),
+    pairs: new Set(errors.map((e) => [...e.pluginIds].sort().join("|"))),
+  };
+}
+
 describe("hook ordering properties: incremental vs batch", () => {
-  // repeated owners, constraints that may name absent owners or form cycles, ranks that differ per owner
-  const owner = fc.constantFrom("a", "b", "c", "d", "e");
-  const tapSpec = fc.record({
-    owner,
-    priority: fc.integer({ min: -2, max: 2 }),
-    before: fc.array(fc.constantFrom("a", "b", "c", "d", "e", "ghost"), { maxLength: 2 }),
-    after: fc.array(fc.constantFrom("a", "b", "c", "d", "e", "ghost"), { maxLength: 2 }),
+  const plain = fc.record({
+    owner: fc.constantFrom(...OWNERS),
+    priority: fc.integer({ min: -1, max: 1 }),
+    before: fc.constant<string[]>([]),
+    after: fc.constant<string[]>([]),
+  });
+  const named = fc.array(fc.constantFrom(...OWNERS, "ghost"), { maxLength: 2 });
+  const constrained = fc.record({
+    owner: fc.constantFrom(...OWNERS),
+    priority: fc.integer({ min: -1, max: 1 }),
+    before: named,
+    after: named,
+  });
+  // rank vectors with ties, one per step, so ranks change between taps
+  const rankVector = fc.array(fc.integer({ min: 0, max: 2 }), { minLength: 5, maxLength: 5 });
+
+  it("an unconstrained prefix (binary inserts) then constrained taps always match a fresh batch order", () => {
+    fc.assert(
+      fc.property(
+        fc.array(fc.tuple(plain, rankVector), { minLength: 1, maxLength: 16 }),
+        fc.array(constrained, { maxLength: 4 }),
+        (prefix, tail) => {
+          const ranks = new Map<string, number>();
+          const reg = createHookRegistry({
+            onError: () => undefined,
+            rankOf: (o) => ranks.get(o) ?? 0,
+          });
+          const taken: Spec[] = [];
+          const add = (s: Spec): void => {
+            const i = taken.length;
+            taken.push(s);
+            reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)]));
+            reg.run(hook, [], (c) => c); // settle after every registration
+            expect(reg.run(hook, [], (c) => c)).toEqual(fresh(taken, ranks).order);
+          };
+          for (const [s, vector] of prefix) {
+            OWNERS.forEach((o, k) => ranks.set(o, vector[k] as number));
+            reg.reorder(); // a rank change takes effect on reorder, as the kernel does after reconcile
+            add(s);
+          }
+          tail.forEach(add);
+        },
+      ),
+      { numRuns: 500 },
+    );
   });
 
-  it("ordering after every tap equals ordering the same taps in one batch; the batch reports each owner pair at most once", () => {
+  it("step by step, each report is for a pair contradictory in a fresh batch of the same taps and not already reported", () => {
     fc.assert(
-      fc.property(fc.array(tapSpec, { minLength: 1, maxLength: 14 }), (specs) => {
-        const rank = (o: string): number => o.charCodeAt(0) % 3;
-        const make = (): { reg: ReturnType<typeof createHookRegistry>; errors: LoomError[] } => {
-          const errors: LoomError[] = [];
-          return {
-            reg: createHookRegistry({ onError: (e) => errors.push(e), rankOf: rank }),
-            errors,
-          };
-        };
-        const one = make();
-        const batch = make();
-        const end = batch.reg.defer();
-        specs.forEach((s, i) => {
-          for (const { reg } of [one, batch]) {
-            reg.tap(hook, s.owner, s, (c, next) => next([...c, `${s.owner}${String(i)}`]));
-          }
-          // running between taps forces the ordering after every registration
-          one.reg.run(hook, [], (c) => c);
+      fc.property(fc.array(constrained, { minLength: 1, maxLength: 12 }), (specs) => {
+        const ranks = new Map<string, number>(OWNERS.map((o, k) => [o, k % 3] as const));
+        const errors: LoomError[] = [];
+        const reg = createHookRegistry({
+          onError: (e) => errors.push(e),
+          rankOf: (o) => ranks.get(o) ?? 0,
         });
-        end();
-        const full = (r: ReturnType<typeof createHookRegistry>): string[] =>
-          r.run(hook, [], (c) => c);
-        expect(full(one.reg)).toEqual(full(batch.reg));
-        const pairs = batch.errors.map((e) => [...e.pluginIds].sort().join("|"));
-        expect(new Set(pairs).size).toBe(pairs.length);
+        let before = new Set<string>(); // pairs contradictory after the previous step
+        specs.forEach((s, i) => {
+          const seen = errors.length;
+          reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)]));
+          reg.run(hook, [], (c) => c);
+          const now = fresh(specs.slice(0, i + 1), ranks).pairs;
+          for (const e of errors.slice(seen)) {
+            const pair = [...e.pluginIds].sort().join("|");
+            expect(now.has(pair), `reported ${pair} but it is not contradictory`).toBe(true);
+            expect(before.has(pair), `reported ${pair} again while it still exists`).toBe(false);
+          }
+          before = now;
+        });
+        expect(fresh(specs, ranks).order).toEqual(reg.run(hook, [], (c) => c));
       }),
-      { numRuns: 400 },
+      { numRuns: 500 },
     );
   });
 });
