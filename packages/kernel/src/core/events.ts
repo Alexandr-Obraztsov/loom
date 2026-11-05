@@ -26,10 +26,19 @@ interface Subscription {
   removed: boolean;
 }
 
-/** Subscriptions of one type, sorted by (rank, seq); `dead` of them are removed but not yet compacted. */
+/**
+ * Subscriptions of one type, sorted by (rank, seq); `dead` of them are removed but not yet compacted.
+ * `subs` is mutated in place unless an emit may be iterating it (`shared`): then the mutation
+ * first moves to a copy (copy-on-write), so subscribing is O(1) amortized and an emit still sees
+ * a stable snapshot.
+ */
 interface Listeners {
-  subs: readonly Subscription[];
+  subs: Subscription[];
   dead: number;
+  /** Emits currently iterating `subs`. */
+  emitting: number;
+  /** `subs` may be in use by an emit; copy before the next in-place change. */
+  shared: boolean;
 }
 
 /** Index of the first entry of `list` (sorted by rank, then seq) ranking after `rank`. */
@@ -45,16 +54,24 @@ function insertionPoint(list: readonly Subscription[], rank: number): number {
 }
 
 const byRankThenSeq = (a: Subscription, b: Subscription): number => a.rank - b.rank || a.seq - b.seq;
-const alive = (l: Listeners): readonly Subscription[] => (l.dead === 0 ? l.subs : l.subs.filter((s) => !s.removed));
+const alive = (l: Listeners): Subscription[] => (l.dead === 0 ? l.subs : l.subs.filter((s) => !s.removed));
 
-/** Adds the newest subscription after every entry of equal or lower rank (compacting the list on the way). */
+/** Replaces the list by `subs`, which no emit holds. */
+function replace(l: Listeners, subs: Subscription[]): void {
+  l.subs = subs;
+  l.dead = 0;
+  l.shared = false;
+}
+
+/** Adds the newest subscription after every entry of equal or lower rank (compacting dead entries first). */
 function insertInto(byType: Map<string, Listeners>, sub: Subscription): void {
   let l = byType.get(sub.type);
-  if (!l) byType.set(sub.type, (l = { subs: [], dead: 0 }));
-  const list = alive(l);
-  const at = insertionPoint(list, sub.rank);
-  l.subs = [...list.slice(0, at), sub, ...list.slice(at)];
-  l.dead = 0;
+  if (!l) byType.set(sub.type, (l = { subs: [], dead: 0, emitting: 0, shared: false }));
+  if (l.dead > 0) replace(l, alive(l));
+  else if (l.shared) replace(l, l.subs.slice());
+  const at = insertionPoint(l.subs, sub.rank);
+  if (at === l.subs.length) l.subs.push(sub);
+  else l.subs.splice(at, 0, sub);
 }
 
 /** Marks `sub` removed; compacts its list once half of it is dead, dropping an empty list. */
@@ -63,14 +80,14 @@ function removeFrom(byType: Map<string, Listeners>, sub: Subscription): void {
   const l = byType.get(sub.type) as Listeners;
   l.dead++;
   if (l.dead * 2 < l.subs.length) return;
-  l.subs = alive(l);
-  l.dead = 0;
+  replace(l, alive(l));
   if (l.subs.length === 0) byType.delete(sub.type);
 }
 
 /**
- * Synchronous, owner-scoped event bus. Per-type arrays are copy-on-write, so an
- * emit iterates a stable snapshot; `removed` guards entries dropped mid-emit.
+ * Synchronous, owner-scoped event bus. An emit iterates a stable snapshot of its type's list:
+ * the list is copied only when it changes while an emit is running; `removed` guards entries
+ * dropped mid-emit.
  * Removed entries are compacted lazily (once they are half of a list), so removing
  * every subscriber of one type costs O(n), not O(n²).
  */
@@ -80,10 +97,6 @@ export function createEventBus(opts: EventBusOptions): EventBus {
   const byOwner = new Map<string, Set<Subscription>>();
   const { rankOf } = opts;
   let seq = 0;
-
-  const remove = (sub: Subscription): void => {
-    removeFrom(byType, sub);
-  };
 
   return {
     on(type, owner, listener) {
@@ -104,30 +117,37 @@ export function createEventBus(opts: EventBusOptions): EventBus {
         owned.delete(sub);
         // a live subscription's owner set is still the indexed one
         if (owned.size === 0) byOwner.delete(owner);
-        remove(sub);
+        removeFrom(byType, sub);
       };
     },
 
     emit(type, payload) {
-      const snapshot = byType.get(type)?.subs;
-      if (!snapshot) return;
+      const l = byType.get(type);
+      if (!l) return;
+      const snapshot = l.subs;
+      l.emitting++;
+      l.shared = true;
       let sinkFailures: unknown[] | undefined;
-      for (const sub of snapshot) {
-        if (sub.removed) continue;
-        try {
-          sub.listener(payload);
-        } catch (cause) {
-          const error = new LoomError(
-            "TAP_FAILED",
-            `event listener of "${sub.owner}" for "${type}" failed`,
-            { pluginIds: [sub.owner], details: { type }, cause },
-          );
+      try {
+        for (const sub of snapshot) {
+          if (sub.removed) continue;
           try {
-            opts.onError(error);
-          } catch (sinkError) {
-            (sinkFailures ??= []).push(sinkError);
+            sub.listener(payload);
+          } catch (cause) {
+            const error = new LoomError(
+              "TAP_FAILED",
+              `event listener of "${sub.owner}" for "${type}" failed`,
+              { pluginIds: [sub.owner], details: { type }, cause },
+            );
+            try {
+              opts.onError(error);
+            } catch (sinkError) {
+              (sinkFailures ??= []).push(sinkError);
+            }
           }
         }
+      } finally {
+        if (--l.emitting === 0) l.shared = false;
       }
       if (sinkFailures?.length === 1) throw sinkFailures[0];
       if (sinkFailures && sinkFailures.length > 1) {
@@ -141,10 +161,9 @@ export function createEventBus(opts: EventBusOptions): EventBus {
     reorder(): void {
       if (!rankOf) return;
       for (const l of byType.values()) {
-        const list = alive(l);
+        const list = alive(l).slice();
         for (const sub of list) sub.rank = rankOf(sub.owner);
-        l.subs = list.slice().sort(byRankThenSeq);
-        l.dead = 0;
+        replace(l, list.sort(byRankThenSeq));
       }
     },
 
@@ -152,7 +171,7 @@ export function createEventBus(opts: EventBusOptions): EventBus {
       const owned = byOwner.get(owner);
       if (!owned) return;
       byOwner.delete(owner);
-      for (const sub of owned) remove(sub);
+      for (const sub of owned) removeFrom(byType, sub);
     },
   };
 }

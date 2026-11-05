@@ -107,3 +107,36 @@ describe("DisposableStore late disposers", () => {
     ).toThrow(boom);
   });
 });
+
+describe("DisposableStore late disposers with a failing onError", () => {
+  it("a throwing onError does not escape add() for a sync throw", () => {
+    const store = new DisposableStore({
+      onError: () => {
+        throw new Error("sink");
+      },
+    });
+    void store.dispose();
+    expect(() => store.add(() => {
+      throw new Error("late");
+    })).not.toThrow();
+  });
+
+  it("a throwing onError does not become an unhandled rejection for an async failure", async () => {
+    const unhandled: unknown[] = [];
+    const listener = (reason: unknown): void => void unhandled.push(reason);
+    process.on("unhandledRejection", listener);
+    try {
+      const store = new DisposableStore({
+        onError: () => {
+          throw new Error("sink");
+        },
+      });
+      void store.dispose();
+      store.add(() => Promise.reject(new Error("late")));
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", listener);
+    }
+  });
+});

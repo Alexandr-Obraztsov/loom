@@ -151,7 +151,7 @@ describe("attach", () => {
     expect(id(new Map([["a", 1]]))).not.toBe(id(new Map([["a", 2]])));
     expect(id(new Set([1, 2]))).toBe(id(new Set([2, 1])));
     expect(id(new Set([1]))).not.toBe(id([1]));
-    expect(id(Symbol("s"))).toBe(id(Symbol("s")));
+    expect(id(Symbol("s"))).not.toBe(id(Symbol("s")));
   });
 
   it("gives the same id to shared (non-cyclic) references", () => {
@@ -198,5 +198,78 @@ describe("validatePlugin strictness", () => {
     for (const version of ["v1.0.0", "=1.0.0", " 1.0.0"]) expect(issuesOf({ id: "a", version })).toHaveLength(1);
     expect(issuesOf({ id: "a", version: "1.0.0", dependsOn: { b: "" } })).toHaveLength(1);
     expect(issuesOf({ id: "a", version: "1.0.0", optionalDependsOn: { b: "" } })).toHaveLength(1);
+  });
+});
+
+describe("attach hashing details", () => {
+  const id = (v: unknown): string => attach("p", "i", v as object).id;
+
+  it("hashes -0 and 0 differently", () => {
+    expect(id({ n: -0 })).not.toBe(id({ n: 0 }));
+  });
+
+  it("hashes distinct symbols with one description differently, one symbol stably", () => {
+    const s = Symbol("s");
+    expect(id({ k: s })).toBe(id({ k: s }));
+    expect(id({ k: Symbol("s") })).not.toBe(id({ k: Symbol("s") }));
+    expect(id({ k: Symbol.for("s") })).toBe(id({ k: Symbol.for("s") }));
+    expect(id({ k: Symbol.for("s") })).not.toBe(id({ k: Symbol("s") }));
+  });
+
+  it("hashes instances of different classes with equal fields differently", () => {
+    class A { x = 1; }
+    class B { x = 1; }
+    expect(id(new A())).toBe(id(new A()));
+    expect(id(new A())).not.toBe(id(new B()));
+    expect(id(new A())).not.toBe(id({ x: 1 }));
+  });
+});
+
+describe("definePlugin freezes the definition structure", () => {
+  const build = (): ReturnType<typeof definePlugin> =>
+    definePlugin({
+      id: "p",
+      version: "1.0.0",
+      dependsOn: { a: "1" },
+      optionalDependsOn: { b: "1" },
+      extensions: [{ id: "e", factory: () => 1, inputs: { slot: { config: {} } }, defaults: { foo: 0 } } as never],
+      overrides: [{ id: "o", factory: () => 1 }],
+    });
+
+  it("rejects mutation of the object, dependency maps, extension lists and extension definitions", () => {
+    const def = build();
+    expect(() => {
+      (def.extensions as unknown[]).push({});
+    }).toThrow(TypeError);
+    expect(() => {
+      (def.dependsOn as Record<string, string>).x = "1";
+    }).toThrow(TypeError);
+    expect(() => {
+      (def.optionalDependsOn as Record<string, string>).x = "1";
+    }).toThrow(TypeError);
+    expect(() => {
+      (def.overrides as unknown[]).push({});
+    }).toThrow(TypeError);
+    expect(() => {
+      def.version = "2.0.0";
+    }).toThrow(TypeError);
+    expect(() => {
+      (def.extensions?.[0] as { id: string }).id = "z";
+    }).toThrow(TypeError);
+  });
+
+  it("leaves the plugin's own data inside the definition mutable", () => {
+    const def = build();
+    const ext = def.extensions?.[0] as unknown as { defaults: Record<string, number>; inputs: Record<string, { config: object }> };
+    expect(() => {
+      ext.defaults.foo = 1;
+    }).not.toThrow();
+    expect(() => {
+      Object.assign(ext.inputs.slot?.config ?? {}, { k: 1 });
+    }).not.toThrow();
+  });
+
+  it("accepts a definition with no optional parts", () => {
+    expect(Object.isFrozen(definePlugin({ id: "p", version: "1.0.0" }))).toBe(true);
   });
 });

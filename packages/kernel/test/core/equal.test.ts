@@ -28,3 +28,27 @@ describe("deepEqual", () => {
     expect(deepEqual(new Map(), {})).toBe(false);
   });
 });
+
+describe("deepEqual primitives and prototypes", () => {
+  it("separates -0 from 0 (Object.is semantics, also inside structures)", () => {
+    expect(deepEqual(-0, 0)).toBe(false);
+    expect(deepEqual({ a: -0 }, { a: 0 })).toBe(false);
+    expect(deepEqual([0], [0])).toBe(true);
+  });
+
+  it("never equates two distinct symbols, even with the same description", () => {
+    expect(deepEqual(Symbol("a"), Symbol("a"))).toBe(false);
+    const s = Symbol("a");
+    expect(deepEqual({ k: s }, { k: s })).toBe(true);
+  });
+
+  it("does not equate instances of different classes with equal fields", () => {
+    class A { x = 1; }
+    class B { x = 1; }
+    expect(deepEqual(new A(), new B())).toBe(false);
+    expect(deepEqual(new A(), { x: 1 })).toBe(false);
+    const a = new A();
+    expect(deepEqual(a, a)).toBe(true);
+    expect(deepEqual(new A(), new A())).toBe(false);
+  });
+});

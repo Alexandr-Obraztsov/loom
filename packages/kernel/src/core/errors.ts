@@ -27,6 +27,7 @@ export interface LoomErrorOptions {
 export class LoomError extends Error {
   readonly code: LoomErrorCode;
   readonly pluginIds: readonly string[];
+  /** Always an own property: `undefined` when the error carries no details, never missing. */
   readonly details?: unknown;
 
   constructor(code: LoomErrorCode, message: string, options: LoomErrorOptions = {}) {

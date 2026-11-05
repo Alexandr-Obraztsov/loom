@@ -49,8 +49,8 @@ class MinHeap {
     let i = items.push(value) - 1;
     while (i > 0) {
       const parent = (i - 1) >> 1;
-      if (byId((items[parent] as string), value) <= 0) break;
-      items[i] = (items[parent] as string);
+      if (byId(items[parent] as string, value) <= 0) break;
+      items[i] = items[parent] as string;
       i = parent;
     }
     items[i] = value;
@@ -58,16 +58,16 @@ class MinHeap {
 
   pop(): string {
     const items = this.items;
-    const top = (items[0] as string);
+    const top = items[0] as string;
     const last = items.pop() as string;
     if (items.length === 0) return top;
     let i = 0;
     for (;;) {
       let child = 2 * i + 1;
       if (child >= items.length) break;
-      if (child + 1 < items.length && byId((items[child + 1] as string), (items[child] as string)) < 0) child++;
-      if (byId((items[child] as string), last) >= 0) break;
-      items[i] = (items[child] as string);
+      if (child + 1 < items.length && byId(items[child + 1] as string, items[child] as string) < 0) child++;
+      if (byId(items[child] as string, last) >= 0) break;
+      items[i] = items[child] as string;
       i = child;
     }
     items[i] = last;
@@ -127,15 +127,15 @@ function checkDependencies(
     }
   }
   if (missing.length > 0) {
-    fail("DEPENDENCY_MISSING", describe("Missing required dependencies", missing), missing);
+    fail("DEPENDENCY_MISSING", describeProblems("Missing required dependencies", missing), missing);
   }
   if (mismatched.length > 0) {
-    fail("DEPENDENCY_VERSION", describe("Dependency version mismatch", mismatched), mismatched);
+    fail("DEPENDENCY_VERSION", describeProblems("Dependency version mismatch", mismatched), mismatched);
   }
   return skippedOptional;
 }
 
-function describe(title: string, problems: Problem[]): string {
+function describeProblems(title: string, problems: Problem[]): string {
   const lines = problems.map(
     (p) => `${p.plugin} -> ${p.dependency} (${JSON.stringify(p.required)}${p.actual === undefined ? "" : `, found ${p.actual}`})`,
   );

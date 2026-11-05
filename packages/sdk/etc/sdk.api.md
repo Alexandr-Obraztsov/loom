@@ -34,7 +34,7 @@ export function createHook<C, R>(id: string, opts?: {
 // @public (undocumented)
 export function createServiceRef<T>(id: string): ServiceRef<T>;
 
-// @public (undocumented)
+// @public
 export function definePlugin(def: PluginDefinition): PluginDefinition;
 
 // @public (undocumented)
@@ -91,7 +91,6 @@ export class LoomError extends Error {
     constructor(code: LoomErrorCode, message: string, options?: LoomErrorOptions);
     // (undocumented)
     readonly code: LoomErrorCode;
-    // (undocumented)
     readonly details?: unknown;
     // (undocumented)
     readonly pluginIds: readonly string[];
