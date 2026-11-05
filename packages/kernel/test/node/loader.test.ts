@@ -2,14 +2,16 @@
 import { mkdir, mkdtemp, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
 import { loadPluginsFromDirs } from "../../src/node/loader.js";
 
 let root: string;
 
 /** Symlinks need privileges on Windows (EPERM); probe once and skip the symlink tests where unavailable. */
-async function canSymlink(): Promise<boolean> {
+async function probeSymlinks(): Promise<boolean> {
   if (process.platform === "win32") return false;
   const probe = await mkdtemp(join(tmpdir(), "loom-symlink-probe-"));
   try {
@@ -21,7 +23,7 @@ async function canSymlink(): Promise<boolean> {
     await rm(probe, { recursive: true, force: true });
   }
 }
-const symlinksWork = await canSymlink();
+const canSymlink = await probeSymlinks();
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "loom-loader-"));
@@ -215,7 +217,7 @@ describe("loadPluginsFromDirs error handling", () => {
 });
 
 describe("loadPluginsFromDirs symlinks and edge cases", () => {
-  it.skipIf(!symlinksWork)("symlinked package directory is loaded", async () => {
+  it.skipIf(!canSymlink)("symlinked package directory is loaded", async () => {
     const target = await writePkg("store", "real", { loom: { id: "real", main: "m.mjs" }, files: { "m.mjs": def("real") } });
     await mkdir(join(root, "g"));
     await symlink(target, join(root, "g", "linked"), "dir");
@@ -224,7 +226,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(result.plugins.map((p) => p.definition.id)).toEqual(["real"]);
   });
 
-  it.skipIf(!symlinksWork)("broken symlink is reported as a failure", async () => {
+  it.skipIf(!canSymlink)("broken symlink is reported as a failure", async () => {
     await mkdir(join(root, "g"));
     await symlink(join(root, "nowhere"), join(root, "g", "dead"), "dir");
     await writeFile(join(root, "target.txt"), "x");
@@ -289,7 +291,7 @@ describe("loadPluginsFromDirs symlinks and edge cases", () => {
     expect(error.pluginIds).toEqual(["a"]);
   });
 
-  it.skipIf(!symlinksWork)("one package linked under two names loads once (by realpath)", async () => {
+  it.skipIf(!canSymlink)("one package linked under two names loads once (by realpath)", async () => {
     const target = await writePkg("store", "real", { loom: { id: "real", main: "m.mjs" }, files: { "m.mjs": def("real") } });
     await mkdir(join(root, "g"));
     await symlink(target, join(root, "g", "a-link"), "dir");

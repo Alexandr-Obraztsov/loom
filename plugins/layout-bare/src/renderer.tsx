@@ -1,8 +1,8 @@
-import type { CSSProperties, ReactNode } from "react";
-import { Render } from "@loom/react";
 import { useCurrentScreen } from "@loom/plugin-app";
-import { definePlugin } from "@loom/sdk";
+import { Render } from "@loom/react";
 import type { PluginDefinition } from "@loom/sdk";
+import { definePlugin } from "@loom/sdk";
+import type { CSSProperties, ReactNode } from "react";
 
 const FULL_WINDOW: CSSProperties = { position: "fixed", inset: 0 };
 

@@ -1,5 +1,5 @@
-import type { CSSProperties, ReactNode } from "react";
 import type { PermissionOptionView, SessionItem } from "@loom/plugin-acp";
+import type { CSSProperties, ReactNode } from "react";
 
 type ToolItem = Extract<SessionItem, { kind: "tool" }>;
 type PermissionItem = Extract<SessionItem, { kind: "permission" }>;

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createEventBus } from "../../src/core/events.js";
+
 import { LoomError } from "../../src/core/errors.js";
+import { createEventBus } from "../../src/core/events.js";
 
 function setup() {
   const errors: LoomError[] = [];
@@ -47,15 +48,15 @@ describe("event bus", () => {
   it("reports a throwing listener as TAP_FAILED and continues", () => {
     const { bus, errors } = setup();
     const boom = new Error("boom");
-    let reached = false;
+    let wasReached = false;
     bus.on("a", "bad", () => {
       throw boom;
     });
     bus.on("a", "ok", () => {
-      reached = true;
+      wasReached = true;
     });
     bus.emit("a", 1);
-    expect(reached).toBe(true);
+    expect(wasReached).toBe(true);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.code).toBe("TAP_FAILED");
     expect(errors[0]?.pluginIds).toEqual(["bad"]);
@@ -71,17 +72,17 @@ describe("event bus error propagation", () => {
         throw sinkErr;
       },
     });
-    let reached = false;
+    let wasReached = false;
     bus.on("a", "bad", () => {
       throw new Error("x");
     });
     bus.on("a", "ok", () => {
-      reached = true;
+      wasReached = true;
     });
     expect(() => {
       bus.emit("a", 1);
     }).toThrow(sinkErr);
-    expect(reached).toBe(true);
+    expect(wasReached).toBe(true);
   });
 
   it("rethrows several onError failures as AggregateError", () => {

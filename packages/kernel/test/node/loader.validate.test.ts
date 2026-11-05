@@ -2,7 +2,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
 
 const thrown = vi.hoisted((): { error: unknown } => ({ error: undefined }));

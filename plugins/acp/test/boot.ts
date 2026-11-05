@@ -2,11 +2,13 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { afterEach } from "vitest";
-import { createKernel, createServiceRef, definePlugin } from "@loom/kernel";
+
 import type { Kernel } from "@loom/kernel";
-import { AgentRegistryRef, PromptHook, SessionsRef, ToolCallHook } from "../src/api.js";
+import { createKernel, createServiceRef, definePlugin } from "@loom/kernel";
+import { afterEach } from "vitest";
+
 import type { AgentSpec, Sessions } from "../src/api.js";
+import { AgentRegistryRef, PromptHook, SessionsRef, ToolCallHook } from "../src/api.js";
 import acp from "../src/main.js";
 
 const STUB = fileURLToPath(new URL("./fixtures/stub-agent.mjs", import.meta.url));

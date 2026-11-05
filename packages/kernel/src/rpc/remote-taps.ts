@@ -1,9 +1,9 @@
 import { LoomError } from "../core/errors.js";
 import type { HookRef, Next, PluginContext, TapOptions } from "../core/types.js";
-import { channelOf } from "./endpoint.js";
 import type { RpcChannel, RpcEndpoint } from "./endpoint.js";
-import { DEFAULT_TAP_TIMEOUT_MS, deserializeError, describe, disconnected, hookTarget, remoteError } from "./protocol.js";
+import { channelOf } from "./endpoint.js";
 import type { TapMessage, TapRequest } from "./protocol.js";
+import { DEFAULT_TAP_TIMEOUT_MS, describe, deserializeError, disconnected, hookTarget, remoteError } from "./protocol.js";
 import { settleOutcome } from "./remote-hooks.js";
 
 type TapFn = (ctx: unknown, next: Next<unknown, unknown>) => unknown;
@@ -36,13 +36,13 @@ const UNTAPPED: LocalTap = { owner: "", fn: passThrough, match: undefined };
 function serve(link: TapLink, msg: Extract<TapMessage, { type: "tap-invoke" }>): void {
   const { channel, waiting } = link;
   const tap = link.taps.get(msg.tapId) ?? UNTAPPED;
-  let called = false;
+  let wasCalled = false;
   const next: Next<unknown, unknown> = (c) => {
-    if (called) {
+    if (wasCalled) {
       const message = `Remote tap of "${tap.owner}" called next() more than once`;
       return Promise.reject(new LoomError("TAP_FAILED", message, { pluginIds: [tap.owner] }));
     }
-    called = true;
+    wasCalled = true;
     return new Promise<unknown>((resolve, reject) => {
       waiting.set(msg.id, { resolve, reject });
       try {
@@ -57,7 +57,7 @@ function serve(link: TapLink, msg: Extract<TapMessage, { type: "tap-invoke" }>):
     const fn = tap.match === undefined || tap.match(msg.ctx) ? tap.fn : passThrough;
     return fn(msg.ctx, next);
   });
-  settleOutcome(run, channel, msg.id, "tap");
+  settleOutcome(run, { channel, id: msg.id, phase: "tap" });
 }
 
 function linkOf(channel: RpcChannel): TapLink {
@@ -101,21 +101,26 @@ function report(ctx: PluginContext, error: unknown): void {
   }
 }
 
+/** What `tapRemote` needs besides the plugin and the hook. */
+export interface RemoteTapOptions<C, R> extends TapOptions<C> {
+  /** The endpoint of the side that exposes the hook (`exposeHooks`). */
+  readonly endpoint: RpcEndpoint;
+  /** Runs on this side; the context and the result cross the wire through `structuredClone`. */
+  readonly handler: (c: C, next: Next<C, R>) => R;
+  /** How long the exposing side waits per invocation before continuing without this tap. Default 5000. */
+  readonly timeoutMs?: number;
+}
+
 /**
- * Taps `hook` of the kernel on the other side of `endpoint` (which must `exposeHooks` it) on
- * behalf of the plugin owning `ctx`. Registration is asynchronous; a failed registration is
- * emitted as `kernel.error` here. `fn` and `opts.match` run on this side; the context and
- * results cross the wire through `structuredClone`. The exposing side waits `timeoutMs`
- * (default 5000) per invocation before continuing without this tap. Disposing the plugin
- * removes the remote tap. Sync hooks throw TAP_FAILED.
+ * Taps `hook` of the kernel on the other side of `options.endpoint` (which must `exposeHooks` it)
+ * on behalf of the plugin owning `ctx`. Registration is asynchronous; a failed registration is
+ * emitted as `kernel.error` here. `options.handler` and `options.match` run on this side; the
+ * context and results cross the wire through `structuredClone`. The exposing side waits
+ * `options.timeoutMs` (default 5000) per invocation before continuing without this tap. Disposing
+ * the plugin removes the remote tap. Sync hooks throw TAP_FAILED.
  */
-export function tapRemote<C, R>(
-  ctx: PluginContext,
-  endpoint: RpcEndpoint,
-  hook: HookRef<C, R>,
-  opts: TapOptions<C> & { timeoutMs?: number },
-  fn: (c: C, next: Next<C, R>) => R,
-): void {
+export function tapRemote<C, R>(ctx: PluginContext, hook: HookRef<C, R>, options: RemoteTapOptions<C, R>): void {
+  const { endpoint, handler: fn, ...opts } = options;
   if (hook.mode === "sync") {
     throw new LoomError("TAP_FAILED", `Sync hook "${hook.id}" cannot be tapped remotely`, { pluginIds: [ctx.id] });
   }
@@ -125,15 +130,15 @@ export function tapRemote<C, R>(
   const target = hookTarget(hook.id);
   const match = opts.match as ((c: unknown) => boolean) | undefined;
   link.taps.set(tapId, { owner: ctx.id, fn: fn as unknown as TapFn, match });
-  let registered = true;
+  let isRegistered = true;
   endpoint.call(target, "tap", [request(tapId, ctx.id, opts as TapOptions<unknown>)]).catch((error: unknown) => {
-    registered = false;
+    isRegistered = false;
     link.taps.delete(tapId);
     report(ctx, error);
   });
   ctx.onDispose(async () => {
     link.taps.delete(tapId);
-    if (!registered) return;
+    if (!isRegistered) return;
     try {
       await endpoint.call(target, "untap", [{ tapId }]);
     } catch (error) {

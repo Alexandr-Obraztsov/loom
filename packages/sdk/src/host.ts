@@ -1,5 +1,5 @@
-import { createServiceRef } from "@loom/kernel";
 import type { RpcEndpoint, ServiceRef } from "@loom/kernel";
+import { createServiceRef } from "@loom/kernel";
 
 /** What the Electron host tells plugins about the process they run in. */
 export interface Host {

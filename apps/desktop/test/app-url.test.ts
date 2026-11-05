@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { appTarget, isAppUrl } from "../src/main/app-url.js";
 
 describe("isAppUrl", () => {

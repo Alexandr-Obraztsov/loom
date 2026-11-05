@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
@@ -21,8 +22,8 @@ describe("hook registry (failures) 1", () => {
   it("throwing tap reports TAP_FAILED with owner and rethrows", () => {
     const { reg, errors } = setup();
     const cause = new Error("boom");
-    reg.tap(sync, "outer", { priority: 1 }, (c, n) => n(c));
-    reg.tap(sync, "bad", {}, () => {
+    reg.tap(sync, { owner: "outer", priority: 1 }, (c, n) => n(c));
+    reg.tap(sync, { owner: "bad" }, () => {
       throw cause;
     });
     let caught: unknown;
@@ -38,7 +39,7 @@ describe("hook registry (failures) 1", () => {
 
   it("fallback errors propagate unchanged and unreported", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", {}, (c, n) => n(c));
+    reg.tap(sync, { owner: "a" }, (c, n) => n(c));
     const boom = new Error("fb");
     expect(() =>
       reg.run(sync, 0, () => {
@@ -51,14 +52,9 @@ describe("hook registry (failures) 1", () => {
   it("match throwing counts as a throwing tap", () => {
     const { reg, errors } = setup();
     reg.tap(
-      sync,
-      "m",
-      {
-        match: () => {
+      sync, { owner: "m", match: () => {
           throw new Error("bad match");
-        },
-      },
-      (c, n) => n(c),
+        }, }, (c, n) => n(c),
     );
     expect(() => reg.run(sync, 0, (c) => c)).toThrow(
       expect.objectContaining({ code: "TAP_FAILED", pluginIds: ["m"] }),
@@ -71,7 +67,7 @@ describe("hook registry (failures) 2", () => {
   it("calling next twice throws TAP_FAILED; first result unaffected", () => {
     const { reg, errors } = setup();
     let first: number | undefined;
-    reg.tap(sync, "a", {}, (c, n) => {
+    reg.tap(sync, { owner: "a" }, (c, n) => {
       first = n(c);
       return n(c);
     });
@@ -84,7 +80,7 @@ describe("hook registry (failures) 2", () => {
 
   it("a tap may swallow the next-twice error; it is still reported once", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", {}, (c, n) => {
+    reg.tap(sync, { owner: "a" }, (c, n) => {
       n(c);
       try {
         n(c);
@@ -100,7 +96,7 @@ describe("hook registry (failures) 2", () => {
   it("sync hook rejects a Promise-returning tap", async () => {
     const { reg, errors } = setup();
     const rejecting = Promise.reject(new Error("late"));
-    reg.tap(sync, "p", {}, (() => rejecting) as unknown as (c: number) => number);
+    reg.tap(sync, { owner: "p" }, (() => rejecting) as unknown as (c: number) => number);
     expect(() => reg.run(sync, 0, (c) => c)).toThrow(
       expect.objectContaining({ code: "TAP_FAILED", pluginIds: ["p"] }),
     );
@@ -110,7 +106,7 @@ describe("hook registry (failures) 2", () => {
 
   it("sync hook rejects a thenable fallback with empty pluginIds", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "outer", {}, (c, n) => n(c));
+    reg.tap(sync, { owner: "outer" }, (c, n) => n(c));
     const fb = (() => ({ then: () => undefined })) as unknown as (c: number) => number;
     expect(() => reg.run(sync, 0, fb)).toThrow(
       expect.objectContaining({ code: "TAP_FAILED", pluginIds: [] }),
@@ -130,9 +126,9 @@ describe("hook registry (failures) 3", () => {
       seen.push(name);
       return n(c);
     };
-    reg.tap(sync, "a", { before: ["b"] }, mk("a"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, mk("a"));
     expect(errors).toEqual([]);
-    reg.tap(sync, "b", { before: ["a"] }, mk("b"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, mk("b"));
     expect(errors).toHaveLength(1);
     expect(errors[0]).toMatchObject({ code: "TAP_FAILED", pluginIds: ["b", "a"] });
     reg.run(sync, 0, (c) => c);
@@ -141,10 +137,10 @@ describe("hook registry (failures) 3", () => {
 
   it("a cycle closed by a constraint-free tap drops only the last-considered edge", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", { after: ["c"] }, (c, n) => n(c));
-    reg.tap(sync, "b", { before: ["c"], after: ["a"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "a", after: ["c"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "b", before: ["c"], after: ["a"] }, (c, n) => n(c));
     expect(errors).toEqual([]);
-    reg.tap(sync, "c", {}, (c, n) => n(c));
+    reg.tap(sync, { owner: "c" }, (c, n) => n(c));
     expect(errors).toHaveLength(1);
     expect(errors[0]?.pluginIds).toEqual(["b", "a"]);
     expect(reg.taps(sync)).toHaveLength(3);
@@ -152,8 +148,8 @@ describe("hook registry (failures) 3", () => {
 
   it("a self-contradicting owner reports once", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", { before: ["x"] }, (c, n) => n(c));
-    reg.tap(sync, "x", { before: ["a"], after: ["a"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "a", before: ["x"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "x", before: ["a"], after: ["a"] }, (c, n) => n(c));
     expect(errors).toHaveLength(1);
     expect(reg.taps(sync).map((t) => t.owner)).toEqual(["a", "x"]);
   });
@@ -164,7 +160,7 @@ describe("hook registry (failures) 3", () => {
         throw new Error("sink");
       },
     });
-    reg.tap(sync, "a", {}, () => {
+    reg.tap(sync, { owner: "a" }, () => {
       throw new Error("tap");
     });
     expect(() => reg.run(sync, 0, (c) => c)).toThrow(
@@ -176,7 +172,7 @@ describe("hook registry (failures) 3", () => {
 describe("hook registry (failures) 4", () => {
   it("a non-Error tap throw is wrapped with its string form", () => {
     const { reg } = setup();
-    reg.tap(sync, "a", {}, () => {
+    reg.tap(sync, { owner: "a" }, () => {
       // eslint-disable-next-line @typescript-eslint/only-throw-error -- exercising non-Error throw
       throw "plain";
     });
@@ -189,9 +185,9 @@ describe("hook registry (self-healing order)", () => {
 
   it("earlier tap's non-contradictory constraint survives a later contradicting tap", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", { before: ["b"] }, (c, n) => n(c));
-    reg.tap(sync, "c", {}, (c, n) => n(c));
-    reg.tap(sync, "b", { priority: 10, before: ["a"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "a", before: ["b"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "c" }, (c, n) => n(c));
+    reg.tap(sync, { owner: "b", priority: 10, before: ["a"] }, (c, n) => n(c));
     expect(owners(reg)).toEqual(["a", "b", "c"]);
     expect(errors).toHaveLength(1);
     expect(errors[0]?.pluginIds).toEqual(["b", "a"]);
@@ -199,9 +195,9 @@ describe("hook registry (self-healing order)", () => {
 
   it("removing the contradicting partner restores dropped constraints", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "m", { before: ["n"] }, (c, n) => n(c));
-    reg.tap(sync, "n", { before: ["o"] }, (c, n) => n(c));
-    reg.tap(sync, "o", { before: ["m"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "m", before: ["n"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "n", before: ["o"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "o", before: ["m"] }, (c, n) => n(c));
     expect(owners(reg)).toEqual(["m", "n", "o"]);
     expect(errors).toHaveLength(1);
     reg.removeOwner("n");
@@ -211,11 +207,11 @@ describe("hook registry (self-healing order)", () => {
 
   it("a constraint dropped once is reported once, not on every recompute", () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "a", { before: ["b"] }, (c, n) => n(c));
-    reg.tap(sync, "b", { before: ["a"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "a", before: ["b"] }, (c, n) => n(c));
+    reg.tap(sync, { owner: "b", before: ["a"] }, (c, n) => n(c));
     expect(errors).toHaveLength(1);
-    reg.tap(sync, "z", {}, (c, n) => n(c));
-    reg.tap(sync, "w", {}, (c, n) => n(c));
+    reg.tap(sync, { owner: "z" }, (c, n) => n(c));
+    reg.tap(sync, { owner: "w" }, (c, n) => n(c));
     reg.removeOwner("z");
     expect(errors).toHaveLength(1);
     expect(owners(reg)).toEqual(["a", "b", "w"]);
@@ -224,7 +220,7 @@ describe("hook registry (self-healing order)", () => {
   it("plugin-forged TAP_FAILED is re-wrapped with the real owner and reported", () => {
     const { reg, errors } = setup();
     const forged = new LoomError("TAP_FAILED", "forged", { pluginIds: ["victim"] });
-    reg.tap(sync, "evil", {}, () => {
+    reg.tap(sync, { owner: "evil" }, () => {
       throw forged;
     });
     expect(() => reg.run(sync, 0, (c) => c)).toThrow(
@@ -235,8 +231,8 @@ describe("hook registry (self-healing order)", () => {
 
   it("non-object fallback throw is not attributed to any plugin (sync and async)", async () => {
     const { reg, errors } = setup();
-    reg.tap(sync, "innocent", {}, (c, n) => n(c));
-    reg.tap(asyncHook, "innocent", {}, (c, n) => n(c));
+    reg.tap(sync, { owner: "innocent" }, (c, n) => n(c));
+    reg.tap(asyncHook, { owner: "innocent" }, (c, n) => n(c));
     let sCaught: unknown;
     try {
       reg.run(sync, 0, () => {

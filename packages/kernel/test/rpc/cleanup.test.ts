@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createHook, createServiceRef } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
 import { createKernel } from "../../src/core/kernel.js";
@@ -65,10 +66,10 @@ describe("late tap-result after the timeout", () => {
         id: "slow-tap",
         version: "1.0.0",
         setup(ctx) {
-          tapRemote(ctx, eb, H, { timeoutMs: 20 }, async () => {
+          tapRemote(ctx, H, { endpoint: eb, timeoutMs: 20, handler: async () => {
             await sleep(60);
             return 999;
-          });
+          } });
         },
       },
     ]);
@@ -128,17 +129,17 @@ describe("remoteServicesPlugin callTimeoutMs", () => {
   async function setup(callTimeoutMs?: number): Promise<{ proxy: { slow(): Promise<number> }; handlerSignal: () => boolean }> {
     const [ta, tb] = createMemoryTransportPair();
     const eb = createRpcEndpoint(tb);
-    let aborted = false;
+    let wasAborted = false;
     eb.handle(Svc.id, (_m, _a, signal) => {
       signal.addEventListener("abort", () => {
-        aborted = true;
+        wasAborted = true;
       });
       return new Promise<unknown>(() => undefined);
     });
     const ea = createRpcEndpoint(ta);
     const win = createKernel();
     await win.reconcile([remoteServicesPlugin({ id: "remote", endpoint: ea, refs: [Svc], ...(callTimeoutMs === undefined ? {} : { callTimeoutMs }) })]);
-    return { proxy: win.services.use(Svc) as unknown as { slow(): Promise<number> }, handlerSignal: () => aborted };
+    return { proxy: win.services.use(Svc) as unknown as { slow(): Promise<number> }, handlerSignal: () => wasAborted };
   }
 
   it("rejects RPC_CANCELLED after the timeout and the peer receives cancel", async () => {
@@ -184,10 +185,10 @@ describe("call abort handler", () => {
     const record = (e: unknown): void => void unhandled.push(e);
     process.on("unhandledRejection", record);
     try {
-      let failing = false;
+      let isFailing = false;
       const transport: Transport = {
         send: () => {
-          if (failing) throw new Error("wire down");
+          if (isFailing) throw new Error("wire down");
         },
         onMessage: () => () => undefined,
         onClose: () => () => undefined,
@@ -195,7 +196,7 @@ describe("call abort handler", () => {
       const endpoint = createRpcEndpoint(transport);
       const controller = new AbortController();
       const call = rejection(endpoint.call("t", "m", [], controller.signal));
-      failing = true;
+      isFailing = true;
       controller.abort();
       expect((await call).code).toBe("RPC_CANCELLED");
       await sleep(10);
@@ -213,7 +214,7 @@ describe("settleOutcome fallback", () => {
     const peer = channelOf(createRpcEndpoint(tb));
     const seen: RpcMessage[] = [];
     peer.onTapMessage((m) => seen.push(m));
-    settleOutcome(Promise.resolve(() => 1), channelOf(ea), 3, "tap");
+    settleOutcome(Promise.resolve(() => 1), { channel: channelOf(ea), id: 3, phase: "tap" });
     await sleep(0);
     expect(seen).toMatchObject([{ type: "tap-result", id: 3, for: "tap", outcome: { ok: false, error: { code: "RPC_REMOTE_ERROR" } } }]);
   });
@@ -229,9 +230,9 @@ describe("settleOutcome fallback", () => {
     };
     const endpoint = createRpcEndpoint(transport, { onProtocolError: (e) => reports.push(e) });
     const channel = channelOf(endpoint);
-    settleOutcome(Promise.resolve(1), channel, 1, "tap");
+    settleOutcome(Promise.resolve(1), { channel, id: 1, phase: "tap" });
     await sleep(0);
     expect(reports.map((e) => e.message)).toEqual([expect.stringContaining("Cannot send RPC reply")]);
-    expect(channel.closed).toBe(true);
+    expect(channel.isClosed).toBe(true);
   });
 });

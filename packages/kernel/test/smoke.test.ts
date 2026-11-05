@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createKernel, definePlugin, KERNEL_ID, PluginsRef } from "../src/index.js";
 
 describe("kernel smoke", () => {

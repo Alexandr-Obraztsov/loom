@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { AcpError } from "../src/api.js";
 import { createAgentRegistry } from "../src/main/registry.js";
-import { OPEN, SPEC, itemsOf, only, open, rig, tick } from "./helpers.js";
 import type { Rig } from "./helpers.js";
+import { itemsOf, only, OPEN, open, rig, SPEC, tick } from "./helpers.js";
 
 let r: Rig;
 beforeEach(() => {
@@ -136,12 +137,12 @@ describe("waitUpdates", () => {
     const seq = (await r.sessions.waitUpdates(id, -1, 1)).seq;
     const p = r.sessions.waitUpdates(id, seq, 1000);
     await tick(999);
-    let done = false;
+    let isDone = false;
     void p.then(() => {
-      done = true;
+      isDone = true;
     });
     await tick(0);
-    expect(done).toBe(false);
+    expect(isDone).toBe(false);
     await tick(1);
     expect((await p).seq).toBe(seq);
   });
@@ -152,12 +153,12 @@ describe("waitUpdates", () => {
     await r.sessions.prompt(id, "noise"); // wakes nobody: seq stays below 99
     await tick();
     await tick(24999 - 16);
-    let done = false;
+    let isDone = false;
     void p.then(() => {
-      done = true;
+      isDone = true;
     });
     await tick(0);
-    expect(done).toBe(false);
+    expect(isDone).toBe(false);
     await tick(1);
     await p;
   });

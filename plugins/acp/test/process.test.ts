@@ -1,11 +1,12 @@
+import { ClientApp } from "@agentclientprotocol/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import {
   KILL_GRACE_MS,
-  STDERR_TAIL_BYTES,
   launchProcess,
   spawnAgent,
+  STDERR_TAIL_BYTES,
 } from "../src/main/process.js";
-import { ClientApp } from "@agentclientprotocol/sdk";
 
 const node = (script: string) => ({
   id: "n",

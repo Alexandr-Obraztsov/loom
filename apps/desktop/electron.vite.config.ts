@@ -1,7 +1,9 @@
 import { fileURLToPath } from "node:url";
+
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "electron-vite";
 import type { UserConfig } from "electron-vite";
+import { defineConfig } from "electron-vite";
+
 import { loomBuild } from "./vite/loom-build.js";
 
 const here = (rel: string): string => fileURLToPath(new URL(rel, import.meta.url));

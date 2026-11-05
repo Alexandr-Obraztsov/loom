@@ -1,5 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
+
 import type { Plugin } from "vite";
 
 type Side = "main" | "renderer";

@@ -1,10 +1,10 @@
 import { deepEqual } from "./equal.js";
 import { LoomError } from "./errors.js";
 import type { HookRegistry } from "./hooks.js";
-import { KERNEL_ID, KernelRuntime } from "./kernel-runtime.js";
 import type { KernelConfig, KernelOptions, PassRequest } from "./kernel-runtime.js";
-import { createPluginsService, PluginsRef } from "./plugins-service.js";
+import { KERNEL_ID, KernelRuntime } from "./kernel-runtime.js";
 import type { CatalogChange, CatalogEntry } from "./plugins-service.js";
+import { createPluginsService, PluginsRef } from "./plugins-service.js";
 import type { ReconcileDiff } from "./reconcile.js";
 import type { TreeResult } from "./tree.js";
 import type { HookRef, PluginDefinition, ServiceRef } from "./types.js";
@@ -78,16 +78,16 @@ function configRequest(catalog: readonly CatalogEntry[], previous: KernelConfig,
 export function createKernel(options: KernelOptions = {}): Kernel {
   let catalog: readonly CatalogEntry[] = [];
   let queue: Promise<unknown> = Promise.resolve();
-  let closing = false;
-  let dead = false;
+  let isClosing = false;
+  let isDead = false;
   let disposal: Promise<void> | undefined;
 
   const live = (): void => {
-    if (dead) throw disposedError();
+    if (isDead) throw disposedError();
   };
 
   const enqueue = <T>(task: () => Promise<T>): Promise<T> => {
-    if (closing) return Promise.reject(disposedError());
+    if (isClosing) return Promise.reject(disposedError());
     const run = queue.then(task);
     queue = run.catch(() => undefined);
     return run;
@@ -145,14 +145,14 @@ export function createKernel(options: KernelOptions = {}): Kernel {
       disposal ??= enqueue(async () => {
         await rt.disposeAll();
         catalog = [];
-        dead = true;
+        isDead = true;
       });
-      closing = true;
+      isClosing = true;
       return disposal;
     },
   };
   internals.set(kernel, {
-    tap: (hook, owner, opts, fn) => (live(), rt.hooks.tap(hook, owner, opts, fn)),
+    tap: (hook, opts, fn) => (live(), rt.hooks.tap(hook, opts, fn)),
     report: (error) => {
       rt.report(error);
     },

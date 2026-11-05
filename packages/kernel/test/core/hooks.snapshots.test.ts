@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
@@ -10,8 +11,8 @@ const pass = (owner: string) => (l: string[], next: (c: string[]) => string[]) =
 describe("taps() snapshots", () => {
   it("returns plain snapshots without internals; mutating them does not change the order", () => {
     const reg = createHookRegistry({ onError: () => undefined });
-    reg.tap(sync, "a", { priority: 1 }, pass("a"));
-    reg.tap(sync, "b", {}, pass("b"));
+    reg.tap(sync, { owner: "a", priority: 1 }, pass("a"));
+    reg.tap(sync, { owner: "b" }, pass("b"));
     const snap = reg.taps(sync) as { owner: string; priority: number }[];
     expect(snap.map((t) => ({ ...t }))).toEqual([
       { owner: "a", priority: 1 },
@@ -42,10 +43,10 @@ describe("onError robustness", () => {
       },
     });
     const end = reg.defer();
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
-    reg.tap(sync, "c", { before: ["d"] }, pass("c"));
-    reg.tap(sync, "d", { before: ["c"] }, pass("d"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
+    reg.tap(sync, { owner: "c", before: ["d"] }, pass("c"));
+    reg.tap(sync, { owner: "d", before: ["c"] }, pass("d"));
     end();
     expect(seen).toHaveLength(2);
     expect(reg.run(sync, [], (l) => l)).toEqual(["a", "b", "c", "d"]);
@@ -53,17 +54,17 @@ describe("onError robustness", () => {
 
   it("a tap added from onError while the order is being refreshed is in the order", () => {
     const holder: { reg?: ReturnType<typeof createHookRegistry> } = {};
-    let fired = false;
+    let hasFired = false;
     const reg = (holder.reg = createHookRegistry({
       onError: () => {
-        if (fired) return;
-        fired = true;
-        holder.reg?.tap(sync, "late", { priority: -1 }, pass("late"));
+        if (hasFired) return;
+        hasFired = true;
+        holder.reg?.tap(sync, { owner: "late", priority: -1 }, pass("late"));
       },
     }));
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
-    expect(fired).toBe(true);
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
+    expect(hasFired).toBe(true);
     expect(reg.taps(sync).map((t) => t.owner)).toEqual(["a", "b", "late"]);
     expect(reg.run(sync, [], (l) => l)).toEqual(["a", "b", "late"]);
   });
@@ -80,8 +81,8 @@ describe("contradiction reports across rank changes", () => {
       onError: (e) => errors.push(e),
       rankOf: (o) => ranks.get(o) ?? 9,
     });
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
     expect(errors).toHaveLength(1);
     ranks.set("a", 1).set("b", 0);
     reg.reorder();
@@ -92,10 +93,10 @@ describe("contradiction reports across rank changes", () => {
   it("is reported again after the contradiction is gone and returns", () => {
     const errors: LoomError[] = [];
     const reg = createHookRegistry({ onError: (e) => errors.push(e) });
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
     reg.removeOwner("b");
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
     expect(errors).toHaveLength(2);
   });
 });
@@ -116,7 +117,7 @@ describe("incremental insertion", () => {
       ["x", 0],
     ];
     for (const [o, priority] of seq) {
-      reg.tap(sync, o, { priority }, pass(o));
+      reg.tap(sync, { owner: o, priority }, pass(o));
       reg.run(sync, [], (l) => l);
     }
     expect(reg.run(sync, [], (l) => l)).toEqual(["x", "y", "x", "x", "z", "y"]);
@@ -124,13 +125,13 @@ describe("incremental insertion", () => {
 
   it("a constrained tap among them falls back to a full recompute", () => {
     const reg = createHookRegistry({ onError: () => undefined });
-    reg.tap(sync, "a", {}, pass("a"));
+    reg.tap(sync, { owner: "a" }, pass("a"));
     reg.run(sync, [], (l) => l);
-    reg.tap(sync, "b", { before: ["a"] }, pass("b"));
-    reg.tap(sync, "c", {}, pass("c"));
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass("b"));
+    reg.tap(sync, { owner: "c" }, pass("c"));
     expect(reg.run(sync, [], (l) => l)).toEqual(["b", "a", "c"]);
     reg.removeOwner("b");
-    reg.tap(sync, "d", {}, pass("d"));
+    reg.tap(sync, { owner: "d" }, pass("d"));
     expect(reg.run(sync, [], (l) => l)).toEqual(["a", "c", "d"]);
   });
 });
@@ -140,12 +141,12 @@ describe("three-owner cycle", () => {
     const errors: LoomError[] = [];
     const reg = createHookRegistry({ onError: (e) => errors.push(e) });
     const pairs = (): string[] => errors.map((e) => [...e.pluginIds].sort().join("|"));
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["c"] }, pass("b"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["c"] }, pass("b"));
     expect(pairs()).toEqual([]);
-    reg.tap(sync, "c", { before: ["a"] }, pass("c")); // closes the cycle: c->a is dropped
+    reg.tap(sync, { owner: "c", before: ["a"] }, pass("c")); // closes the cycle: c->a is dropped
     expect(pairs()).toEqual(["a|c"]);
-    reg.tap(sync, "z", {}, pass("z")); // same dropped edge, no new report
+    reg.tap(sync, { owner: "z" }, pass("z")); // same dropped edge, no new report
     reg.removeOwner("z");
     expect(pairs()).toEqual(["a|c"]);
     expect(reg.run(sync, [], (l) => l)).toEqual(["a", "b", "c"]);
@@ -162,9 +163,9 @@ describe("three-owner cycle", () => {
       onError: (e) => errors.push(e),
       rankOf: (o) => ranks.get(o) ?? 9,
     });
-    reg.tap(sync, "a", { before: ["b"] }, pass("a"));
-    reg.tap(sync, "b", { before: ["c"] }, pass("b"));
-    reg.tap(sync, "c", { before: ["a"] }, pass("c"));
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass("a"));
+    reg.tap(sync, { owner: "b", before: ["c"] }, pass("b"));
+    reg.tap(sync, { owner: "c", before: ["a"] }, pass("c"));
     const pairs = (): string[] => errors.map((e) => [...e.pluginIds].sort().join("|"));
     const first = pairs();
     expect(first).toHaveLength(1);

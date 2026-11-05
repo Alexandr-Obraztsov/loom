@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ask, itemsOf, only, open, rig, tick } from "./helpers.js";
+
 import type { Rig } from "./helpers.js";
+import { ask, itemsOf, only, open, rig, tick } from "./helpers.js";
 
 let r: Rig;
 beforeEach(() => {
@@ -43,14 +44,14 @@ describe("permissions", () => {
       return "end_turn";
     };
     const seq0 = (await r.sessions.waitUpdates(id, -1, 1)).seq;
-    let turnDone = false;
-    void r.sessions.prompt(id, "x").then(() => (turnDone = true));
+    let isTurnDone = false;
+    void r.sessions.prompt(id, "x").then(() => (isTurnDone = true));
     await tick(200); // no poller during this time
     const snap = await r.sessions.waitUpdates(id, seq0, 60000);
     const item = only(itemsOf(snap.items, "permission"));
-    expect(turnDone).toBe(false);
+    expect(isTurnDone).toBe(false);
     await r.sessions.respondPermission(id, item.id, null);
     await tick();
-    expect(turnDone).toBe(true);
+    expect(isTurnDone).toBe(true);
   });
 });

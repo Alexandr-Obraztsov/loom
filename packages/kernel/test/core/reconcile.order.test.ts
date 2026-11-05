@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook, createServiceRef, definePlugin } from "../../src/core/definitions.js";
 import { createKernel } from "../../src/core/kernel.js";
 import type { PluginContext, PluginDefinition } from "../../src/core/types.js";
@@ -10,7 +11,7 @@ interface Named {
 const named = createServiceRef<Named>("named");
 const chain = createHook<string[], string[]>("order.chain", { mode: "sync" });
 
-function participant(log: string[], id: string, heard: string[], version = "1.0.0"): PluginDefinition {
+function participant({ log, heard }: { log: string[]; heard: string[] }, id: string, version = "1.0.0"): PluginDefinition {
   return plugin(log, id, {
     version,
     deps: ["p"],
@@ -58,22 +59,22 @@ const pinger = definePlugin({
 describe("reconcile keeps registration order stable", () => {
   it("rollback restores tap order, listener order and decorator output", async () => {
     const { log, heard, k, p, observe } = scene();
-    const a = participant(log, "a", heard);
-    const b = participant(log, "b", heard);
+    const a = participant({ log, heard }, "a");
+    const b = participant({ log, heard }, "b");
     await k.reconcile([p, a, b, pinger]);
     const before = observe();
     expect(before).toEqual({ taps: ["a", "b"], listeners: ["a", "b"], decorated: "pAB" });
     const z = plugin(log, "z", { setup: () => Promise.reject(new Error("z")) });
-    const err = await rejection(k.reconcile([p, participant(log, "a", heard, "1.1.0"), b, pinger, z]));
+    const err = await rejection(k.reconcile([p, participant({ log, heard }, "a", "1.1.0"), b, pinger, z]));
     expect(err.code).toBe("SETUP_FAILED");
     expect(observe()).toEqual(before);
   });
 
   it("reloading a plugin does not move its registrations relative to unaffected plugins", async () => {
     const { log, heard, k, p, observe } = scene();
-    const b = participant(log, "b", heard);
-    await k.reconcile([p, participant(log, "a", heard), b, pinger]);
-    const diff = await k.reconcile([p, participant(log, "a", heard, "1.1.0"), b, pinger]);
+    const b = participant({ log, heard }, "b");
+    await k.reconcile([p, participant({ log, heard }, "a"), b, pinger]);
+    const diff = await k.reconcile([p, participant({ log, heard }, "a", "1.1.0"), b, pinger]);
     expect(diff.reloaded).toEqual(["a"]);
     expect(observe()).toEqual({ taps: ["a", "b"], listeners: ["a", "b"], decorated: "pAB" });
   });

@@ -1,10 +1,10 @@
-import { useCallback, useState, useSyncExternalStore } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
 import { SessionsRef } from "@loom/plugin-acp";
 import { ChatSessionRef } from "@loom/plugin-chat";
 import { useService } from "@loom/react";
-import { attach, definePlugin } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
+import { attach, definePlugin } from "@loom/sdk";
+import type { KeyboardEvent, ReactNode } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 
 const STARTING_PLACEHOLDER = "Сессия запускается…";
 const SEND_FAILED = "Не удалось отправить";
@@ -21,15 +21,15 @@ function StartingField(): ReactNode {
 
 /** Поле активного сеанса: Enter отправляет, кнопки Отправить/Стоп, ошибка под полем. */
 function ActiveField(props: { sessionId: string; busy: boolean }): ReactNode {
-  const { sessionId, busy } = props;
+  const { sessionId, busy: isBusy } = props;
   const sessions = useService(SessionsRef);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | undefined>(undefined);
-  const [sending, setSending] = useState(false);
+  const [isSending, setSending] = useState(false);
 
   const send = (): void => {
     const value = text.trim();
-    if (sending || value === "") return;
+    if (isSending || value === "") return;
     setError(undefined);
     setSending(true);
     // the field empties at once: the prompt resolves only when the whole turn ends, and a draft
@@ -56,7 +56,7 @@ function ActiveField(props: { sessionId: string; busy: boolean }): ReactNode {
     if (e.key !== "Enter" || e.shiftKey) return;
     // обычный Enter не вставляет перевод строки, даже когда отправка невозможна
     e.preventDefault();
-    if (!busy) send();
+    if (!isBusy) send();
   };
 
   return (
@@ -70,12 +70,12 @@ function ActiveField(props: { sessionId: string; busy: boolean }): ReactNode {
         onKeyDown={onKeyDown}
       />
       {error !== undefined ? <p role="alert">{`${SEND_FAILED}: ${error}`}</p> : null}
-      {busy ? (
+      {isBusy ? (
         <button type="button" onClick={stop}>
           Стоп
         </button>
       ) : (
-        <button type="button" disabled={sending} onClick={send}>
+        <button type="button" disabled={isSending} onClick={send}>
           Отправить
         </button>
       )}

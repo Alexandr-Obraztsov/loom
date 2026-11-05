@@ -1,11 +1,12 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { attach, createKernel, definePlugin } from "@loom/kernel";
 import type { Kernel, PluginDefinition, ResolvedNode } from "@loom/kernel";
-import { KernelProvider, Render } from "@loom/react";
-import type { ReactNode } from "react";
-import { NavigationRef } from "@loom/plugin-app";
+import { attach, createKernel, definePlugin } from "@loom/kernel";
 import type { Navigation } from "@loom/plugin-app";
+import { NavigationRef } from "@loom/plugin-app";
+import { KernelProvider, Render } from "@loom/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+
 import layoutBare from "../src/renderer.js";
 
 const kernels: Kernel[] = [];

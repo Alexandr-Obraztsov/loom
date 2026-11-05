@@ -1,8 +1,9 @@
 import { RequestError } from "@agentclientprotocol/sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { HANDSHAKE_TIMEOUT_MS } from "../src/main/sessions.js";
-import { OPEN, only, open, rig, tick } from "./helpers.js";
 import type { Rig } from "./helpers.js";
+import { only, OPEN, open, rig, tick } from "./helpers.js";
 import { itemsOf } from "./helpers.js";
 
 let r: Rig;

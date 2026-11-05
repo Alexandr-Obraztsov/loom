@@ -1,7 +1,7 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useService, useTree } from "@loom/react";
 import type { ResolvedNode, ServiceRef } from "@loom/sdk";
 import { createServiceRef } from "@loom/sdk";
-import { useService, useTree } from "@loom/react";
+import { useCallback, useSyncExternalStore } from "react";
 
 /**
  * Shell navigation. The service itself knows nothing about the tree:

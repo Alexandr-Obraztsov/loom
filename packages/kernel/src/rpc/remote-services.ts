@@ -1,8 +1,8 @@
-import { kernelInternals } from "../core/kernel.js";
 import type { Kernel } from "../core/kernel.js";
+import { kernelInternals } from "../core/kernel.js";
 import type { PluginContext, PluginDefinition, ServiceRef } from "../core/types.js";
-import { channelOf } from "./endpoint.js";
 import type { RpcEndpoint } from "./endpoint.js";
+import { channelOf } from "./endpoint.js";
 import { createAbortController, startTimer, stopTimer } from "./platform.js";
 import { remoteError } from "./protocol.js";
 
@@ -85,11 +85,11 @@ function remoteProxy(endpoint: RpcEndpoint, target: string, callTimeoutMs: numbe
   );
 }
 
-export interface RemoteServicesOptions {
-  /** Plugin id: the owner of the proxies, which consumers name in `dependsOn`. */
-  readonly id: string;
-  readonly version?: string;
+/** Which services `provideRemoteServices` proxies and over which endpoint. */
+export interface ProvideRemoteServicesOptions {
+  /** The endpoint of the side that exposes the services (`exposeServices`). */
   readonly endpoint: RpcEndpoint;
+  /** The services to proxy. */
   readonly refs: readonly ServiceRef<object>[];
   /**
    * Rejects a proxy call with RPC_CANCELLED, and sends the peer a `cancel`, when it has not settled
@@ -99,22 +99,25 @@ export interface RemoteServicesOptions {
   readonly callTimeoutMs?: number;
 }
 
+/** `ProvideRemoteServicesOptions` plus the identity of the plugin `remoteServicesPlugin` makes. */
+export interface RemoteServicesOptions extends ProvideRemoteServicesOptions {
+  /** Plugin id: the owner of the proxies, which consumers name in `dependsOn`. */
+  readonly id: string;
+  readonly version?: string;
+}
+
 /**
  * Provides each ref, on `ctx`, as an async proxy to services exposed on the other side of
- * `endpoint` (see `exposeServices`): every method returns a Promise that performs
+ * `options.endpoint` (see `exposeServices`): every method returns a Promise that performs
  * `endpoint.call(ref.id, method, args)`. For plugins whose endpoint only becomes available
  * inside setup (e.g. taken from `use(HostRef)` on the renderer side); protocol errors of the
  * endpoint go to `kernel.error` and the subscription is released when the plugin is disposed.
- * `options.callTimeoutMs` bounds every call (see `RemoteServicesOptions`). A remote method
- * named `then` cannot be called through the proxy.
+ * `options.callTimeoutMs` bounds every call. A remote method named `then` cannot be called
+ * through the proxy.
  */
-export function provideRemoteServices(
-  ctx: PluginContext,
-  endpoint: RpcEndpoint,
-  refs: readonly ServiceRef<object>[],
-  options: { readonly callTimeoutMs?: number } = {},
-): void {
-  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id, options.callTimeoutMs));
+export function provideRemoteServices(ctx: PluginContext, options: ProvideRemoteServicesOptions): void {
+  const { endpoint, refs, callTimeoutMs } = options;
+  for (const ref of refs) ctx.provide(ref, remoteProxy(endpoint, ref.id, callTimeoutMs));
   const off = channelOf(endpoint).onProtocolError(ctx, (error) => {
     ctx.emit("kernel.error", error);
   });
@@ -130,12 +133,12 @@ export function provideRemoteServices(
  * answer, with RPC_CANCELLED after `callTimeoutMs`, or with RPC_DISCONNECTED when the endpoint closes.
  */
 export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefinition {
-  const { id, version = "0.0.0", endpoint, refs, callTimeoutMs } = options;
+  const { id, version = "0.0.0" } = options;
   return {
     id,
     version,
     setup(ctx) {
-      provideRemoteServices(ctx, endpoint, refs, callTimeoutMs === undefined ? {} : { callTimeoutMs });
+      provideRemoteServices(ctx, options);
     },
   };
 }

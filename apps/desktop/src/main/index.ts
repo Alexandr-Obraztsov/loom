@@ -1,15 +1,17 @@
 import { join } from "node:path";
-import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain } from "electron";
+
+import type { Kernel } from "@loom/kernel";
 import { createKernel } from "@loom/kernel";
 import { HostRef } from "@loom/sdk";
-import type { Kernel } from "@loom/kernel";
-import config from "../../../../builds/minimal/loom.config.json";
+import { app, BrowserWindow, dialog, ipcMain, MessageChannelMain } from "electron";
 import { plugins } from "virtual:loom/main-plugins";
-import { appTarget, isAppUrl } from "./app-url.js";
+
+import config from "../../../../builds/minimal/loom.config.json";
 import { overrideAgent } from "./agent-command.js";
+import { appTarget, isAppUrl } from "./app-url.js";
 import { createSwitchableEndpoint } from "./host-endpoint.js";
-import { createLink } from "./link.js";
 import type { Link } from "./link.js";
+import { createLink } from "./link.js";
 import { resolveProjectDir } from "./project.js";
 import { createTurnGuard } from "./turn-guard.js";
 
@@ -113,10 +115,10 @@ async function start(): Promise<void> {
 
 /** Quit path: the page link goes first (cancels turns), then every plugin is disposed (kills agents). */
 function quitWith(kernel: Kernel, link: Link): void {
-  let disposing = false;
+  let isDisposing = false;
   app.on("before-quit", (event) => {
-    if (disposing) return;
-    disposing = true;
+    if (isDisposing) return;
+    isDisposing = true;
     event.preventDefault();
     link.close();
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, DISPOSE_TIMEOUT_MS));

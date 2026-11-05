@@ -1,5 +1,5 @@
-import { createServiceRef } from "@loom/sdk";
 import type { ServiceRef } from "@loom/sdk";
+import { createServiceRef } from "@loom/sdk";
 
 /** One JSON-backed namespace: get/set/delete/keys over `<dataDir>/storage/<ns>.json`. */
 export interface NamespaceStore {

@@ -1,7 +1,8 @@
 import type { ZodType } from "zod";
+
 import { LoomError } from "./errors.js";
-import { findOrphans, indexEntries } from "./tree-index.js";
 import type { Orphan, Placed, TreeEntry, TreeIndex } from "./tree-index.js";
+import { findOrphans, indexEntries } from "./tree-index.js";
 import type { ExtensionContext, InputSpec, ResolvedNode } from "./types.js";
 
 export interface TreeConfig {
@@ -65,7 +66,8 @@ function sameArray<T>(a: readonly T[] | undefined, b: readonly T[] | undefined):
   return a !== undefined && b !== undefined && a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-function sameFingerprint(f: Fingerprint, p: Placed, schema: ZodType | undefined, parentPlugin: string | undefined, kids: readonly ResolvedNode[]): boolean {
+function sameFingerprint(f: Fingerprint, frame: Frame, parentPlugin: string | undefined): boolean {
+  const { p, schema, kids } = frame;
   return (
     f.pluginId === p.pluginId && f.ext === p.ext && f.inputs === p.inputs && f.schema === schema && f.parentPlugin === parentPlugin &&
     f.attachId === p.attach?.id && f.attachInput === p.attach?.input &&
@@ -73,7 +75,7 @@ function sameFingerprint(f: Fingerprint, p: Placed, schema: ZodType | undefined,
   );
 }
 
-function inputError(p: Placed, name: string, spec: InputSpec, all: readonly ResolvedNode[], healthy: number): LoomError | undefined {
+function inputError(p: Placed, [name, spec]: readonly [string, InputSpec], all: readonly ResolvedNode[]): LoomError | undefined {
   if (!spec.multiple && all.length > 1) {
     const ids = all.map((n) => n.id).join(", ");
     return new LoomError("EXTENSION_CONFLICT", `Input "${name}" of "${p.id}" accepts one extension but got ${String(all.length)}: ${ids}`, {
@@ -81,7 +83,7 @@ function inputError(p: Placed, name: string, spec: InputSpec, all: readonly Reso
       details: { input: name, children: all.map((n) => n.id) },
     });
   }
-  if (spec.required && healthy === 0) {
+  if (spec.required && all.every((n) => n.errors.length > 0)) {
     return new LoomError("EXTENSION_INPUT_MISMATCH", `Required input "${name}" of "${p.id}" has no usable extension attached`, {
       pluginIds: [p.pluginId],
       details: { input: name },
@@ -98,10 +100,11 @@ function wire(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>): { shown:
   if (p.conflict) {
     errors.push(new LoomError("EXTENSION_CONFLICT", `Extension "${p.id}" is provided by several plugins: ${p.conflict.join(", ")}`, { pluginIds: p.conflict, details: { id: p.id } }));
   }
-  for (const [name, spec] of Object.entries(p.inputs ?? {})) {
+  for (const entry of Object.entries(p.inputs ?? {})) {
+    const [name, spec] = entry;
     const all = byInput.get(name) ?? [];
     const healthy = all.filter((n) => n.errors.length === 0);
-    const bad = inputError(p, name, spec, all, healthy.length);
+    const bad = inputError(p, entry, all);
     if (bad) errors.push(bad);
     shown[name] = spec.multiple || all.length > 1 ? all : all[0];
     given[name] = spec.multiple ? healthy : healthy[0];
@@ -109,8 +112,9 @@ function wire(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>): { shown:
   return { shown, given, errors };
 }
 
-function build(p: Placed, byInput: ReadonlyMap<string, ResolvedNode[]>, schema: ZodType | undefined, pass: Pass): ResolvedNode {
-  const { shown, given, errors } = wire(p, byInput);
+function build(frame: Frame, pass: Pass): ResolvedNode {
+  const { p, schema } = frame;
+  const { shown, given, errors } = wire(p, groupByInput(frame));
   let value: unknown;
   const used = new Map<string, number>();
   const trackedUse: Pass["use"] = (ref) => {
@@ -205,10 +209,10 @@ function finish(frame: Frame, parentPlugin: string | undefined, pass: Pass): Res
   const { p, schema, kids } = frame;
   const prev = pass.previous.get(p.id);
   const prevPrint = prev && fingerprints.get(prev);
-  const same = prev !== undefined && prevPrint !== undefined && sameFingerprint(prevPrint, p, schema, parentPlugin, kids);
-  let node = same && !isStale(prev, pass) ? prev : build(p, groupByInput(frame), schema, pass);
+  const isSame = prev !== undefined && prevPrint !== undefined && sameFingerprint(prevPrint, frame, parentPlugin);
+  let node = isSame && !isStale(prev, pass) ? prev : build(frame, pass);
   // a failing factory is retried every build, but failing the same way again is no change
-  if (same && node !== prev && sameFailure(prev, node)) node = prev;
+  if (isSame && node !== prev && sameFailure(prev, node)) node = prev;
   if (node !== prev) {
     fingerprints.set(node, {
       pluginId: p.pluginId, ext: p.ext, inputs: p.inputs, schema, kids, parentPlugin,
@@ -273,13 +277,17 @@ function sameOrphans(a: readonly Orphan[], b: readonly Orphan[]): boolean {
   return a.map(orphanKey).join("\n") === b.map(orphanKey).join("\n");
 }
 
-export function buildTree(
-  entries: readonly TreeEntry[],
-  config: TreeConfig,
-  use: ExtensionContext<never>["use"],
-  previous?: TreeResult,
-  serviceVersion?: (refId: string) => number,
-): TreeResult {
+/** What `buildTree` builds with, besides the entries and the config. */
+export interface TreeBuildOptions {
+  readonly use: ExtensionContext<never>["use"];
+  /** The last result: nodes whose inputs did not change are reused from it. */
+  readonly previous?: TreeResult | undefined;
+  /** Current version of a service; a node that used a service whose version moved is rebuilt. */
+  readonly serviceVersion?: ((refId: string) => number) | undefined;
+}
+
+export function buildTree(entries: readonly TreeEntry[], config: TreeConfig, options: TreeBuildOptions): TreeResult {
+  const { use, previous, serviceVersion } = options;
   const index = indexEntries(entries, config);
   // a hand-made `previous` has no fingerprints, so nothing of it could be reused anyway
   const prevNodes = (previous?.root && nodesOf.get(previous.root)) ?? NO_NODES;

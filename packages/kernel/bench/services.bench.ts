@@ -1,4 +1,5 @@
 import { bench, describe } from "vitest";
+
 import { createServiceRef } from "../src/core/definitions.js";
 import { createServiceRegistry } from "../src/core/services.js";
 import type { Counter } from "../test/perf-fixtures.js";

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ask, itemsOf, only, open, rig, tick } from "./helpers.js";
+
 import type { Rig } from "./helpers.js";
+import { ask, itemsOf, only, open, rig, tick } from "./helpers.js";
 
 let r: Rig;
 beforeEach(() => {

@@ -1,7 +1,8 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import type { LoomError } from "../../src/core/errors.js";
+
 import { createHook } from "../../src/core/definitions.js";
+import type { LoomError } from "../../src/core/errors.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
 
 const hook = createHook<string[], string[]>("h.prop", { mode: "sync" });
@@ -20,12 +21,12 @@ const scenario = fc
     const before = owners.map(() => [] as string[]);
     const after = owners.map(() => [] as string[]);
     const constraints: [string, string][] = [];
-    for (const [a, b, viaBefore] of edges) {
+    for (const [a, b, isViaBefore] of edges) {
       const x = a % n;
       const y = b % n;
       if (x >= y) continue;
       const [fromO, toO] = [owners[x] as string, owners[y] as string];
-      if (viaBefore) (before[x] as string[]).push(toO);
+      if (isViaBefore) (before[x] as string[]).push(toO);
       else (after[y] as string[]).push(fromO);
       constraints.push([fromO, toO]);
     }
@@ -44,14 +45,9 @@ describe("hook ordering properties", () => {
         const regOrder = [...idx.slice(rot), ...idx.slice(0, rot)];
         for (const i of regOrder) {
           reg.tap(
-            hook,
-            s.owners[i] as string,
-            {
-              priority: s.priorities[i] as number,
+            hook, { owner: s.owners[i] as string, priority: s.priorities[i] as number,
               before: s.before[i] as string[],
-              after: s.after[i] as string[],
-            },
-            (c, next) => next([...c, s.owners[i] as string]),
+              after: s.after[i] as string[], }, (c, next) => next([...c, s.owners[i] as string]),
           );
         }
         const order = reg.taps(hook).map((t) => t.owner);
@@ -76,7 +72,7 @@ describe("hook ordering properties", () => {
         (priorities) => {
           const reg = createHookRegistry({ onError: () => undefined });
           priorities.forEach((p, i) =>
-            reg.tap(hook, "p" + String(i), { priority: p }, (c, next) => next(c)),
+            reg.tap(hook, { owner: "p" + String(i), priority: p }, (c, next) => next(c)),
           );
           const expected = priorities
             .map((p, i) => ({ p, i }))
@@ -109,14 +105,9 @@ describe("hook ordering properties (contradictions)", () => {
           const reg = createHookRegistry({ onError: () => undefined });
           specs.forEach(([prio, b, a], i) =>
             reg.tap(
-              hook,
-              "p" + String(i % 6),
-              {
-                priority: prio,
+              hook, { owner: "p" + String(i % 6), priority: prio,
                 before: b.map((x) => "p" + String(x)),
-                after: a.map((x) => "p" + String(x)),
-              },
-              (c, next) => next([...c, "#" + String(i)]),
+                after: a.map((x) => "p" + String(x)), }, (c, next) => next([...c, "#" + String(i)]),
             ),
           );
           const ran = reg.run(hook, [], (c) => c);
@@ -135,7 +126,7 @@ describe("hook ordering properties (contradictions)", () => {
         const reg = createHookRegistry({ onError: (e) => errors.push(e) });
         for (let i = 0; i < 5; i++) {
           const before = edges.filter(([a]) => a === i).map(([, b]) => "p" + String(b));
-          reg.tap(hook, "p" + String(i), { before }, (c, next) => next([...c, "p" + String(i)]));
+          reg.tap(hook, { owner: "p" + String(i), before }, (c, next) => next([...c, "p" + String(i)]));
         }
         const order = reg.taps(hook).map((t) => t.owner);
         const pos = (o: string) => order.indexOf(o);
@@ -152,8 +143,8 @@ describe("hook ordering properties (contradictions)", () => {
             seen.add(b);
             return b === to || reach(b, to, seen);
           });
-        const cyclic = adj.some(([a]) => reach(a, a));
-        if (cyclic) expect(errors.length).toBeGreaterThan(0);
+        const isCyclic = adj.some(([a]) => reach(a, a));
+        if (isCyclic) expect(errors.length).toBeGreaterThan(0);
         for (const e of errors) expect(e.code).toBe("TAP_FAILED");
         expect(reg.run(hook, [], (c) => c)).toHaveLength(5);
       }),
@@ -177,7 +168,7 @@ function fresh(
     rankOf: (o) => ranks.get(o) ?? 0,
   });
   const end = reg.defer();
-  specs.forEach((s, i) => reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)])));
+  specs.forEach((s, i) => reg.tap(hook, s, (c, next) => next([...c, label(s.owner, i)])));
   end();
   return {
     order: reg.run(hook, [], (c) => c),
@@ -217,7 +208,7 @@ describe("hook ordering properties: incremental vs batch", () => {
           const add = (s: Spec): void => {
             const i = taken.length;
             taken.push(s);
-            reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)]));
+            reg.tap(hook, s, (c, next) => next([...c, label(s.owner, i)]));
             reg.run(hook, [], (c) => c); // settle after every registration
             expect(reg.run(hook, [], (c) => c)).toEqual(fresh(taken, ranks).order);
           };
@@ -245,7 +236,7 @@ describe("hook ordering properties: incremental vs batch", () => {
         let before = new Set<string>(); // pairs contradictory after the previous step
         specs.forEach((s, i) => {
           const seen = errors.length;
-          reg.tap(hook, s.owner, s, (c, next) => next([...c, label(s.owner, i)]));
+          reg.tap(hook, s, (c, next) => next([...c, label(s.owner, i)]));
           reg.run(hook, [], (c) => c);
           const now = fresh(specs.slice(0, i + 1), ranks).pairs;
           for (const e of errors.slice(seen)) {

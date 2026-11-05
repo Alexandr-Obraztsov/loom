@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
-import { createKernel } from "../../src/core/kernel.js";
 import type { Kernel } from "../../src/core/kernel.js";
+import { createKernel } from "../../src/core/kernel.js";
 import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import { startTimer } from "../../src/rpc/platform.js";
@@ -29,7 +30,7 @@ describe("rpc wire protocol", () => {
         id: "t",
         version: "1.0.0",
         setup: (ctx) => {
-          tapRemote(ctx, eb, H, {}, (c, next) => next(c));
+          tapRemote(ctx, H, { endpoint: eb, handler: (c, next) => next(c) });
         },
       },
     ]);

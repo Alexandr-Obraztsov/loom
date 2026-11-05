@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { inRange, isRange, isVersion } from "../../src/core/versions.js";
 
 describe("memoized semver predicates", () => {

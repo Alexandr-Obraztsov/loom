@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createServiceRef } from "../../src/core/definitions.js";
+import type { LoomError } from "../../src/core/errors.js";
 import { createKernel } from "../../src/core/kernel.js";
 import { KernelRuntime } from "../../src/core/kernel-runtime.js";
-import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
-import type { LoomError } from "../../src/core/errors.js";
+import { PluginsRef } from "../../src/core/plugins-service.js";
 import { must, plugin, rejection } from "./kernel-helpers.js";
 
 describe("PluginsService called from setup or teardown", () => {
@@ -96,24 +97,24 @@ describe("undetected re-entrancy (documented limit)", () => {
       },
     });
     let call: Promise<unknown> | undefined;
-    let pendingDuringSetup = false;
+    let wasPendingDuringSetup = false;
     const user = plugin(log, "user", {
       deps: ["owner"],
       provides: false,
       setup: async (ctx) => {
-        let settled = false;
+        let isSettled = false;
         call = ctx
           .use(handle)
           .plugins.install(plugin(log, "late"))
           .finally(() => {
-            settled = true;
+            isSettled = true;
           });
         await new Promise((resolve) => setTimeout(resolve, 30)); // awaiting `call` here would hang the pass
-        pendingDuringSetup = !settled;
+        wasPendingDuringSetup = !isSettled;
       },
     });
     await k.reconcile([owner, user]);
-    expect(pendingDuringSetup).toBe(true);
+    expect(wasPendingDuringSetup).toBe(true);
     await must(call);
     expect(k.plugins.map((p) => p.id)).toContain("late");
   });

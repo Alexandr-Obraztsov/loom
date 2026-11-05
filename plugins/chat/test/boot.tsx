@@ -1,14 +1,15 @@
-import { act, render } from "@testing-library/react";
-import type { RenderResult } from "@testing-library/react";
-import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
 import type { Kernel, PluginDefinition } from "@loom/kernel";
-import { KernelProvider, Render, RenderRoot } from "@loom/react";
-import { NavigationRef, useCurrentScreen } from "@loom/plugin-app";
-import type { Navigation } from "@loom/plugin-app";
+import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
+import type { Sessions,SessionSnapshot } from "@loom/plugin-acp";
 import { SessionsRef } from "@loom/plugin-acp";
-import type { SessionSnapshot, Sessions } from "@loom/plugin-acp";
-import { HostRef, definePlugin } from "@loom/sdk";
+import type { Navigation } from "@loom/plugin-app";
+import { NavigationRef, useCurrentScreen } from "@loom/plugin-app";
+import { KernelProvider, Render, RenderRoot } from "@loom/react";
+import { definePlugin,HostRef } from "@loom/sdk";
+import type { RenderResult } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
 import type { ReactNode } from "react";
+
 import chat from "../src/renderer.js";
 import type { FakeSessions } from "./fixtures.js";
 

@@ -11,7 +11,7 @@ export function ext(id: string, rest: Partial<ExtensionDefinition> = {}): Extens
   return { id, factory: () => id, ...rest };
 }
 export const at = (id: string, input: string): { id: string; input: string } => ({ id, input });
-export const e = (pluginId: string, def: ExtensionDefinition, override = false): Entry => ({ pluginId, ext: def, override });
+export const e = (pluginId: string, def: ExtensionDefinition, isOverride = false): Entry => ({ pluginId, ext: def, override: isOverride });
 export const slot = { slot: { multiple: true } };
 
 export function childIds(node: ResolvedNode | undefined, input: string): string[] {

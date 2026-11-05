@@ -1,15 +1,22 @@
 import { LoomError } from "../core/errors.js";
-import { kernelInternals } from "../core/kernel.js";
 import type { Kernel, KernelInternals } from "../core/kernel.js";
+import { kernelInternals } from "../core/kernel.js";
 import type { HookRef, Next, TapOptions } from "../core/types.js";
-import { channelOf } from "./endpoint.js";
 import type { RpcChannel, RpcEndpoint } from "./endpoint.js";
-import { describe, deserializeError, hookTarget, remoteError, serializeError } from "./protocol.js";
-import type { Outcome, TapMessage, TapRequest } from "./protocol.js";
+import { channelOf } from "./endpoint.js";
 import { startTimer, stopTimer } from "./platform.js";
+import type { Outcome, TapMessage, TapRequest } from "./protocol.js";
+import { describe, deserializeError, hookTarget, remoteError, serializeError } from "./protocol.js";
+
+/** Where an outcome goes: invocation `id` on `channel`, as the result of `phase`. */
+export interface OutcomeTarget {
+  readonly channel: RpcChannel;
+  readonly id: number;
+  readonly phase: "next" | "tap";
+}
 
 /** Sends a tap-result; a value that cannot be sent becomes an RPC_REMOTE_ERROR outcome. */
-function sendOutcome(channel: RpcChannel, id: number, phase: "next" | "tap", outcome: Outcome): void {
+function sendOutcome({ channel, id, phase }: OutcomeTarget, outcome: Outcome): void {
   try {
     channel.send({ type: "tap-result", id, for: phase, outcome });
   } catch (e) {
@@ -18,13 +25,13 @@ function sendOutcome(channel: RpcChannel, id: number, phase: "next" | "tap", out
   }
 }
 
-export function settleOutcome(promise: Promise<unknown>, channel: RpcChannel, id: number, phase: "next" | "tap"): void {
+export function settleOutcome(promise: Promise<unknown>, target: OutcomeTarget): void {
   promise.then(
     (value: unknown) => {
-      sendOutcome(channel, id, phase, { ok: true, value });
+      sendOutcome(target, { ok: true, value });
     },
     (error: unknown) => {
-      sendOutcome(channel, id, phase, { ok: false, error: serializeError(error) });
+      sendOutcome(target, { ok: false, error: serializeError(error) });
     },
   );
 }
@@ -48,7 +55,7 @@ function invocationsOf(channel: RpcChannel): Map<number, Invocation> {
       if (invocation) invocation.next(msg.ctx);
       else {
         const error = new LoomError("RPC_CANCELLED", "The remote tap invocation is no longer running");
-        sendOutcome(channel, msg.id, "next", { ok: false, error: serializeError(error) });
+        sendOutcome({ channel, id: msg.id, phase: "next" }, { ok: false, error: serializeError(error) });
       }
     } else if (msg.type === "tap-result" && msg.for === "tap") own.get(msg.id)?.done(msg.outcome);
   });
@@ -80,7 +87,7 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
   const { channel, internals, owner } = tap;
   const lost = (): LoomError =>
     new LoomError("RPC_DISCONNECTED", `Remote tap of "${owner}" on hook "${tap.hookId}" was disconnected`, { pluginIds: [owner] });
-  if (channel.closed) {
+  if (channel.isClosed) {
     // a run that snapshotted the tap before the endpoint closed: skip it without sending
     internals.report(lost());
     return Promise.resolve().then(() => next(ctx));
@@ -114,7 +121,7 @@ function invoke(tap: RemoteTap, ctx: unknown, next: Next<unknown, unknown>): Pro
     });
     invocations.set(id, {
       next: (c) => {
-        settleOutcome(callNext(c), channel, id, "next");
+        settleOutcome(callNext(c), { channel, id, phase: "next" });
       },
       done: (outcome) => {
         finish();
@@ -168,7 +175,7 @@ export function exposeHooks(kernel: Kernel, endpoint: RpcEndpoint, hooks: readon
         const tap: RemoteTap = { channel, internals, hookId: hook.id, owner: `remote:${req.owner}`, tapId: req.tapId, timeoutMs: req.timeoutMs };
         // a peer reusing a tapId replaces its earlier tap instead of leaking it until close
         untap(req.tapId);
-        taps.set(req.tapId, internals.tap(hook, tap.owner, tapOptions(req), (ctx, next) => invoke(tap, ctx, next)));
+        taps.set(req.tapId, internals.tap(hook, { ...tapOptions(req), owner: tap.owner }, (ctx, next) => invoke(tap, ctx, next)));
       } else return Promise.reject(remoteError(`Unknown hook request "${method}"`));
       return Promise.resolve(undefined);
     }),

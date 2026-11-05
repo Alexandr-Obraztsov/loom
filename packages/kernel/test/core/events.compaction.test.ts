@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createEventBus } from "../../src/core/events.js";
 
 describe("event bus bookkeeping", () => {

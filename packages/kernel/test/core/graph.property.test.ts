@@ -1,5 +1,6 @@
 import fc from "fast-check";
 import { describe, it } from "vitest";
+
 import { resolveOrder } from "../../src/core/graph.js";
 import type { PluginDefinition } from "../../src/core/types.js";
 
@@ -20,8 +21,8 @@ const dagArb = fc
       const dependsOn: Record<string, string> = {};
       const optionalDependsOn: Record<string, string> = {};
       if (i > 0) {
-        for (const [raw, optional] of edges[i] ?? []) {
-          (optional ? optionalDependsOn : dependsOn)[name(raw % i)] = "*";
+        for (const [raw, isOptional] of edges[i] ?? []) {
+          (isOptional ? optionalDependsOn : dependsOn)[name(raw % i)] = "*";
         }
       }
       plugins.push({ id: name(i), version: "1.0.0", dependsOn, optionalDependsOn });

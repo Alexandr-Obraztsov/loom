@@ -1,11 +1,12 @@
-import { act, cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { attach, createKernel, definePlugin } from "@loom/kernel";
 import type { ExtensionDefinition, Kernel } from "@loom/kernel";
+import { attach, createKernel, definePlugin } from "@loom/kernel";
 import { KernelProvider, RenderRoot } from "@loom/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import app from "../src/renderer.js";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { NavigationRef, useCurrentScreen } from "../src/api.js";
+import app from "../src/renderer.js";
 
 const kernels: Kernel[] = [];
 afterEach(async () => {

@@ -1,13 +1,15 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
+
 import type { Kernel } from "@loom/kernel";
-import { HostRef, definePlugin } from "@loom/sdk";
-import storage from "../src/main.js";
-import { StorageRef } from "../src/api.js";
+import { createKernel, createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
+import { definePlugin,HostRef } from "@loom/sdk";
+import { afterEach, describe, expect, it } from "vitest";
+
 import type { Storage } from "../src/api.js";
+import { StorageRef } from "../src/api.js";
+import storage from "../src/main.js";
 
 const kernels: Kernel[] = [];
 afterEach(async () => {

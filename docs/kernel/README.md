@@ -196,7 +196,7 @@ const darkFiles = definePlugin({
 - **Сервисы:** `exposeServices(kernel, endpoint, refs)` на одной стороне,
   `remoteServicesPlugin({ id, endpoint, refs })` на другой — обычный плагин-провайдер,
   каждый метод которого возвращает Promise с вызовом через endpoint.
-- **Хуки:** `exposeHooks(kernel, endpoint, hooks)` + `tapRemote(ctx, endpoint, hook, opts, fn)`.
+- **Хуки:** `exposeHooks(kernel, endpoint, hooks)` + `tapRemote(ctx, hook, { endpoint, handler, ...opts })`.
   Только async-хуки. Удалённый тап владеет `remote:<plugin id>` и снимается при `untap`,
   выгрузке плагина или закрытии endpoint.
 - **Таймауты:** сторона хука ждёт ответа удалённого тапа `timeoutMs` (по умолчанию 5000 мс),

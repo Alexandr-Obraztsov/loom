@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
-import { createKernel } from "../../src/core/kernel.js";
 import type { Kernel } from "../../src/core/kernel.js";
+import { createKernel } from "../../src/core/kernel.js";
 import type { HookRef, Next, PluginContext, PluginDefinition, TapOptions } from "../../src/core/types.js";
-import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { RpcEndpoint } from "../../src/rpc/endpoint.js";
-import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
+import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { MemoryTransport } from "../../src/rpc/memory-transport.js";
+import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import { startTimer } from "../../src/rpc/platform.js";
 import { exposeHooks } from "../../src/rpc/remote-hooks.js";
 import { tapRemote } from "../../src/rpc/remote-taps.js";
@@ -23,12 +24,13 @@ const tick = (): Promise<void> => new Promise((r) => startTimer(r, 0));
 
 type Fn = (c: Ctx, next: Next<Ctx, Promise<number>>) => Promise<number>;
 
-function tapper(endpoint: RpcEndpoint, fn: Fn, opts: TapOptions<Ctx> & { timeoutMs?: number } = {}, id = "win-tap"): PluginDefinition {
+function tapper(endpoint: RpcEndpoint, fn: Fn, opts: TapOptions<Ctx> & { timeoutMs?: number; id?: string } = {}): PluginDefinition {
+  const { id = "win-tap", ...tapOptions } = opts;
   return {
     id,
     version: "1.0.0",
     setup(ctx) {
-      tapRemote(ctx, endpoint, H, opts, fn);
+      tapRemote(ctx, H, { endpoint, ...tapOptions, handler: fn });
     },
   };
 }
@@ -125,7 +127,7 @@ describe("remote hook lifecycle", () => {
         version: "1.0.0",
         setup(ctx: PluginContext) {
           error = thrown(() => {
-            tapRemote(ctx, w.eb, SyncH, {}, (c) => c.n);
+            tapRemote(ctx, SyncH, { endpoint: w.eb, handler: (c) => c.n });
           });
         },
       },
@@ -165,8 +167,8 @@ describe("remote hook failures", () => {
   it("match and priority apply; a failing remote tap surfaces as TAP_FAILED of the remote owner", async () => {
     const w = await world();
     await w.win.reconcile([
-      tapper(w.eb, async (c, next) => (await next(c)) + 1, { match: (c) => c.n > 1, priority: 1 }, "plus"),
-      tapper(w.eb, () => Promise.reject(new Error("boom")), { match: (c) => c.n === 5, before: ["remote:plus"], after: [] }, "boom"),
+      tapper(w.eb, async (c, next) => (await next(c)) + 1, { match: (c) => c.n > 1, priority: 1, id: "plus" }),
+      tapper(w.eb, () => Promise.reject(new Error("boom")), { match: (c) => c.n === 5, before: ["remote:plus"], after: [], id: "boom" }),
     ]);
     await tick();
     await expect(w.run(1)).resolves.toBe(10);
@@ -203,7 +205,7 @@ describe("remote hook failures", () => {
         id: "lost",
         version: "1.0.0",
         setup(ctx) {
-          tapRemote(ctx, w.eb, other, {}, (c, next) => next(c));
+          tapRemote(ctx, other, { endpoint: w.eb, handler: (c, next) => next(c) });
         },
       },
     ]);

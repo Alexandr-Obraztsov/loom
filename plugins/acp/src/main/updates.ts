@@ -1,4 +1,5 @@
 import type { ContentBlock, SessionUpdate, ToolCallContent } from "@agentclientprotocol/sdk";
+
 import type { SessionItem, SessionSnapshot } from "../api.js";
 
 export const BATCH_MS = 16;
@@ -30,7 +31,7 @@ function detailOf(content: readonly ToolCallContent[] | null | undefined): strin
 export class SessionLog {
   seq = 0;
   private items: SessionItem[] = [];
-  private busy = false;
+  private isBusy = false;
   private queue: (() => void)[] = [];
   private timer: ReturnType<typeof setTimeout> | undefined;
   private waiters = new Set<{ after: number; wake: () => void }>();
@@ -44,7 +45,7 @@ export class SessionLog {
   }
 
   snapshot(): SessionSnapshot {
-    return { sessionId: this.sessionId, seq: this.seq, items: [...this.items], busy: this.busy };
+    return { sessionId: this.sessionId, seq: this.seq, items: [...this.items], busy: this.isBusy };
   }
 
   apply(update: SessionUpdate): void {
@@ -58,9 +59,9 @@ export class SessionLog {
     this.enqueue(() => this.items.push({ kind: "user", id, text }));
   }
 
-  setBusy(busy: boolean): void {
+  setBusy(isBusy: boolean): void {
     this.enqueue(() => {
-      this.busy = busy;
+      this.isBusy = isBusy;
     });
   }
 
@@ -124,21 +125,12 @@ export class SessionLog {
   }
 
   private applyUpdate(update: SessionUpdate): void {
-    switch (update.sessionUpdate) {
-      case "user_message_chunk":
-        this.appendText("user", textOf(update.content));
-        break;
-      case "agent_message_chunk":
-        this.appendText("agent", textOf(update.content));
-        break;
-      case "agent_thought_chunk":
-        this.appendText("thought", textOf(update.content));
-        break;
-      case "tool_call":
-      case "tool_call_update":
-        this.upsertTool(update);
-        break;
-      default:
+    // Other update kinds (plans, modes, usage, ...) are not shown in the timeline.
+    if (update.sessionUpdate === "user_message_chunk") this.appendText("user", textOf(update.content));
+    else if (update.sessionUpdate === "agent_message_chunk") this.appendText("agent", textOf(update.content));
+    else if (update.sessionUpdate === "agent_thought_chunk") this.appendText("thought", textOf(update.content));
+    else if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+      this.upsertTool(update);
     }
   }
 

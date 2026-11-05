@@ -1,7 +1,8 @@
 import { ClientApp, PROTOCOL_VERSION, RequestError } from "@agentclientprotocol/sdk";
 import type { HookRef } from "@loom/sdk";
+
+import type { AgentRegistry, AgentSpec, Sessions,SessionSnapshot } from "../api.js";
 import { AcpError, PromptHook, ToolCallHook } from "../api.js";
-import type { AgentRegistry, AgentSpec, SessionSnapshot, Sessions } from "../api.js";
 import { PermissionBroker } from "./permissions.js";
 import type { AgentLink, ExitInfo, Launch } from "./process.js";
 import { SessionLog } from "./updates.js";
@@ -184,10 +185,10 @@ export class SessionsManager implements Sessions {
     } catch (e) {
       await link.kill();
       const info = await link.exited;
-      const killed = info.signal === "SIGTERM" || info.signal === "SIGKILL";
+      const wasKilled = info.signal === "SIGTERM" || info.signal === "SIGKILL";
       throw new AcpError(
         "AGENT_START_FAILED",
-        `Не удалось запустить агента «${rec.spec.title}»: ${killed ? messageOf(e) : describeExit(info)}`,
+        `Не удалось запустить агента «${rec.spec.title}»: ${wasKilled ? messageOf(e) : describeExit(info)}`,
         link.stderrTail() || undefined,
       );
     } finally {

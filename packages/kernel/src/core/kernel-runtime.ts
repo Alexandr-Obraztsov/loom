@@ -1,19 +1,19 @@
 import { createPluginContext } from "./context.js";
 import { LoomError } from "./errors.js";
-import { createEventBus } from "./events.js";
 import type { EventBus } from "./events.js";
-import { createHookRegistry } from "./hooks.js";
+import { createEventBus } from "./events.js";
 import type { HookRegistry } from "./hooks.js";
+import { createHookRegistry } from "./hooks.js";
 import { validatePlugin } from "./manifest.js";
-import { applyReconcile, planReconcile, presentOptional, treeEntries } from "./reconcile.js";
-import type { ReconcileDiff, ReconcilePlan, ReconcileRuntime } from "./reconcile.js";
-import { createServiceRegistry } from "./services.js";
-import type { ServiceRegistry } from "./services.js";
-import { buildTree } from "./tree.js";
-import type { TreeConfig, TreeResult } from "./tree.js";
-import type { PluginDefinition, ServiceRef } from "./types.js";
-import { PluginsRef, refuseReentrancy } from "./plugins-service.js";
 import type { PluginsService } from "./plugins-service.js";
+import { PluginsRef, refuseReentrancy } from "./plugins-service.js";
+import type { ReconcileDiff, ReconcilePlan, ReconcileRuntime } from "./reconcile.js";
+import { applyReconcile, planReconcile, presentOptional, treeEntries } from "./reconcile.js";
+import type { ServiceRegistry } from "./services.js";
+import { createServiceRegistry } from "./services.js";
+import type { TreeConfig, TreeResult } from "./tree.js";
+import { buildTree } from "./tree.js";
+import type { PluginDefinition, ServiceRef } from "./types.js";
 
 export const KERNEL_ID = "kernel";
 
@@ -60,7 +60,7 @@ export class KernelRuntime {
   private pending: KernelConfig;
   private readonly running = new Map<string, () => Promise<void>>();
   private readonly states = new Map<string, Record<string, unknown>>();
-  private delivering = false;
+  private isDelivering = false;
   /** Plugins whose setup or teardown is running now; their calls to PluginsService would wait for this very pass. */
   private readonly busy = new Set<string>();
   /**
@@ -89,13 +89,13 @@ export class KernelRuntime {
 
   /** Emits `kernel.error`; errors raised while delivering `kernel.error` itself are dropped (nowhere left to report). */
   report(error: unknown): void {
-    if (this.delivering) return;
+    if (this.isDelivering) return;
     const err = error instanceof LoomError ? error : new LoomError("TAP_FAILED", describe(error), { cause: error });
-    this.delivering = true;
+    this.isDelivering = true;
     try {
       this.events.emit("kernel.error", err);
     } finally {
-      this.delivering = false;
+      this.isDelivering = false;
     }
   }
 
@@ -128,7 +128,7 @@ export class KernelRuntime {
   async pass(req: PassRequest): Promise<ReconcileDiff> {
     const desired = req.desired.map((d) => validatePlugin(d));
     const force = req.freshServices ? new Set(desired.map((d) => d.id)) : req.force;
-    const plan = planReconcile(this.active, desired, force, req.config);
+    const plan = planReconcile(this.active, desired, { force, tree: req.config });
     const previous = { services: this.services, config: this.config };
     const bumps = new Map<string, number>();
     const stopCounting = this.services.onChange((id) => void bumps.set(id, (bumps.get(id) ?? 0) + 1));
@@ -189,9 +189,9 @@ export class KernelRuntime {
    */
   private rank(order: readonly PluginDefinition[]): void {
     const ranks = new Map(order.map((p, i) => [p.id, i]));
-    const moved = [...this.ranks].some(([id, rank]) => ranks.has(id) && ranks.get(id) !== rank);
+    const hasMoved = [...this.ranks].some(([id, rank]) => ranks.has(id) && ranks.get(id) !== rank);
     this.ranks = ranks;
-    if (!moved) return;
+    if (!hasMoved) return;
     this.hooks.reorder();
     this.events.reorder();
     this.services.reorder();
@@ -289,6 +289,6 @@ export class KernelRuntime {
     const use = <T>(ref: ServiceRef<T>): T => this.use(ref as ServiceRef<T & object>);
     const version = (refId: string): number =>
       this.services.version({ id: refId, kind: "service" }) - (this.bias.get(refId) ?? 0);
-    return buildTree(entries, this.config, use, previous, version);
+    return buildTree(entries, this.config, { use, previous, serviceVersion: version });
   }
 }

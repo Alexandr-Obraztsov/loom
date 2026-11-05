@@ -1,4 +1,4 @@
-import type { SessionItem, SessionSnapshot, Sessions } from "@loom/plugin-acp";
+import type { SessionItem, Sessions,SessionSnapshot } from "@loom/plugin-acp";
 
 /**
  * Памятная реализация Sessions с семантикой waitUpdates как у acp SessionLog:
@@ -11,7 +11,7 @@ export class FakeSessions implements Sessions {
   /** Сколько ближайших вызовов waitUpdates отклонять (транспорт лёг). */
   failWaitTimes = 0;
   /** Когда задан — waitUpdates зависает и отклоняется только по rejectPendingWait(). */
-  failWaitOnDemand = false;
+  shouldFailWaitOnDemand = false;
   /** Сколько ближайших respondPermission отклонять (потеря отклика). */
   failRespondTimes = 0;
   /** Когда задано — ensure отклоняется этим (агент не стартовал). */
@@ -89,7 +89,7 @@ export class FakeSessions implements Sessions {
       this.failWaitTimes -= 1;
       return Promise.reject(new Error("rpc недоступен"));
     }
-    if (this.failWaitOnDemand) {
+    if (this.shouldFailWaitOnDemand) {
       return new Promise((_, reject) => {
         this.waitRejector = reject;
       });
@@ -130,15 +130,9 @@ export const thought = (id: string, text: string): SessionItem => ({
 
 export type ToolStatus = Extract<SessionItem, { kind: "tool" }>["status"];
 
-export const tool = (
-  id: string,
-  title: string,
-  status: ToolStatus,
-  detail?: string,
-): SessionItem => ({
+export const tool = (id: string, title: string, status: ToolStatus): SessionItem => ({
   kind: "tool",
   id,
   title,
   status,
-  ...(detail === undefined ? {} : { detail }),
 });

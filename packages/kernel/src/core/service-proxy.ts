@@ -5,8 +5,8 @@
  * Used by `services.ts`; knows nothing about registration.
  */
 import { LoomError } from "./errors.js";
+import type { RefState, Resolved, ServiceSource, Winners } from "./service-helpers.js";
 import { forwarder, pickActive, sameMembers } from "./service-helpers.js";
-import type { RefState, Resolved, Winners } from "./service-helpers.js";
 
 interface ProxyAccess {
   readonly consumer: string;
@@ -97,6 +97,7 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
     if (r?.version === s.version && access.checkedVersion === r.version && r.decorated !== undefined) return r.decorated;
     return resolveChecked(prop);
   };
+  const source: ServiceSource = { id: s.id, current };
   const readOnly = (what: string) => (): never => {
     throw new TypeError(`cannot ${what} on service "${s.id}" through its proxy`);
   };
@@ -114,7 +115,7 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
     } else if (prop === lastProp) return lastWrapper;
     wrappers ??= new Map();
     let w = wrappers.get(prop);
-    if (!w) wrappers.set(prop, (w = forwarder(raw, prop, s.id, current)));
+    if (!w) wrappers.set(prop, (w = forwarder(raw, prop, source)));
     lastProp = prop;
     lastWrapper = w;
     return w;
@@ -147,23 +148,27 @@ function buildProxy(s: RefState, winners: Winners, access: ProxyAccess): object 
 export type ProxyCache = Map<string, Map<string, CachedProxy>>;
 type CachedProxy = { proxy: object; access: ProxyAccess };
 
+/** Who asks for the proxy, and what decides which registration is active. */
+export interface ProxyRequest {
+  readonly winners: Winners;
+  readonly consumer: string;
+  readonly allowed: ReadonlySet<string>;
+  readonly kernelOwner: string;
+}
+
 /** The live proxy of `s` for one consumer, created once and re-validated when the consumer's allowed set changed. */
-export function proxyFor(
-  proxies: ProxyCache,
-  s: RefState,
-  winners: Winners,
-  request: { consumer: string; allowed: ReadonlySet<string>; kernelOwner: string },
-): object {
+export function proxyFor(proxies: ProxyCache, s: RefState, request: ProxyRequest): object {
+  const { winners, consumer, allowed, kernelOwner } = request;
   let byConsumer = proxies.get(s.id);
   if (!byConsumer) proxies.set(s.id, (byConsumer = new Map<string, CachedProxy>()));
-  let cached = byConsumer.get(request.consumer);
+  let cached = byConsumer.get(consumer);
   if (!cached) {
-    const access: ProxyAccess = { ...request, members: [...request.allowed], checkedVersion: -1 };
+    const access: ProxyAccess = { consumer, kernelOwner, allowed, members: [...allowed], checkedVersion: -1 };
     cached = { proxy: buildProxy(s, winners, access), access };
-    byConsumer.set(request.consumer, cached);
-  } else if (!sameMembers(cached.access.members, request.allowed)) {
-    cached.access.allowed = request.allowed;
-    cached.access.members = [...request.allowed];
+    byConsumer.set(consumer, cached);
+  } else if (!sameMembers(cached.access.members, allowed)) {
+    cached.access.allowed = allowed;
+    cached.access.members = [...allowed];
     cached.access.checkedVersion = -1;
   }
   const active = resolve(s, winners).owner;

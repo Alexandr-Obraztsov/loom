@@ -104,6 +104,7 @@ function stableHash(value: unknown): string {
  * Such collisions are rejected by the duplicate-id check; give anything that holds
  * functions an explicit `id`.
  */
+// eslint-disable-next-line max-params -- authoring API: (parent, input, value) is the address plus the payload, options trail
 export function attach<O>(
   parentId: string,
   input: string,

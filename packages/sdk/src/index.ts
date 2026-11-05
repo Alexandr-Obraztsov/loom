@@ -1,6 +1,5 @@
-export { HostRef } from "./host.js";
 export type { Host } from "./host.js";
-export { attach, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef, provideRemoteServices, tapRemote } from "@loom/kernel";
+export { HostRef } from "./host.js";
 export type {
   AbortSignalLike,
   ExtensionContext,
@@ -13,10 +12,13 @@ export type {
   PluginContext,
   PluginDefinition,
   PluginsService,
+  ProvideRemoteServicesOptions,
   ReconcileDiff,
+  RemoteTapOptions,
   ResolvedNode,
   RpcEndpoint,
   RpcHandler,
   ServiceRef,
   TapOptions,
 } from "@loom/kernel";
+export { attach, createExtension, createHook, createServiceRef, definePlugin, LoomError, PluginsRef, provideRemoteServices, tapRemote } from "@loom/kernel";

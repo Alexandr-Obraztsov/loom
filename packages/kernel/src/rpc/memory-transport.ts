@@ -21,18 +21,18 @@ export function createMemoryTransportPair(): [MemoryTransport, MemoryTransport] 
     { messages: new Set(), closes: new Set() },
     { messages: new Set(), closes: new Set() },
   ];
-  let closed = false;
+  let isClosed = false;
   const close = (): void => {
-    if (closed) return;
-    closed = true;
+    if (isClosed) return;
+    isClosed = true;
     for (const side of sides) for (const cb of [...side.closes]) cb();
   };
   const end = (own: Side, peer: Side): MemoryTransport => ({
     send(msg) {
-      if (closed) return;
+      if (isClosed) return;
       const copy = clone(msg);
       microtask(() => {
-        if (closed) return;
+        if (isClosed) return;
         for (const cb of [...peer.messages]) cb(copy);
       });
     },

@@ -1,12 +1,13 @@
 import { execFileSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { _electron as electron, expect, test } from "@playwright/test";
+
 import type { ElectronApplication, Page } from "@playwright/test";
+import { _electron as electron, expect, test } from "@playwright/test";
 
 const appDir = fileURLToPath(new URL("..", import.meta.url));
 const stub = fileURLToPath(new URL("./stub-agent.mjs", import.meta.url));
@@ -92,8 +93,8 @@ async function blockedThenChat(foreign: string, requests: readonly string[]): Pr
   await expect(page.getByLabel("Сообщение")).toBeEnabled({ timeout: 30_000 });
   const before = page.url();
 
-  const opened = await page.evaluate((url) => window.open(url) !== null, foreign);
-  expect(opened).toBe(false);
+  const wasOpened = await page.evaluate((url) => window.open(url) !== null, foreign);
+  expect(wasOpened).toBe(false);
   await page.evaluate((url) => {
     location.href = url;
   }, foreign);

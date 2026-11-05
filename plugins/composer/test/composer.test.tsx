@@ -1,5 +1,6 @@
 import { act, cleanup, createEvent, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+
 import { bootChat, disposeKernels, renderApp, settle } from "../../chat/test/boot.js";
 import composer from "../src/renderer.js";
 import { FakeSessions } from "./fixtures.js";
@@ -35,9 +36,9 @@ async function pressEnter(): Promise<void> {
 }
 
 /** Переключает busy сеанса и ждёт перерисовки композера. */
-async function setBusy(sessions: FakeSessions, busy: boolean): Promise<void> {
+async function setBusy(sessions: FakeSessions, isBusy: boolean): Promise<void> {
   await act(async () => {
-    sessions.emit((s) => ({ ...s, busy }));
+    sessions.emit((s) => ({ ...s, busy: isBusy }));
     await Promise.resolve();
   });
 }

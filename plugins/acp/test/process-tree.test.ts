@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import type { AgentSpec } from "../src/api.js";
 import { KILL_GRACE_MS, spawnAgent } from "../src/main/process.js";
 

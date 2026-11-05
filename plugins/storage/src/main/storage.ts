@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+
 import type { NamespaceStore, Storage } from "../api.js";
 
 /** Namespaces become file names; keep them small, lowercase and path-free. */

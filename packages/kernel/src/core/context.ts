@@ -36,10 +36,10 @@ export function createPluginContext(args: PluginContextArgs): ScopedPluginContex
   const id = plugin.id;
   const store = new DisposableStore();
   let pending: Promise<void> | undefined;
-  let closed = false;
+  let isClosed = false;
 
   const live = (): void => {
-    if (closed) throw new LoomError("DISPOSED", `Plugin context of "${id}" is disposed`, { pluginIds: [id] });
+    if (isClosed) throw new LoomError("DISPOSED", `Plugin context of "${id}" is disposed`, { pluginIds: [id] });
   };
 
   const ctx: PluginContext = {
@@ -65,7 +65,7 @@ export function createPluginContext(args: PluginContextArgs): ScopedPluginContex
     },
     tap<C, R>(hook: HookRef<C, R>, opts: TapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R): void {
       live();
-      hooks.tap(hook, id, opts, fn);
+      hooks.tap(hook, { ...opts, owner: id }, fn);
     },
     run<C, R>(hook: HookRef<C, R>, hookCtx: C, fallback: (ctx: C) => R): R {
       live();
@@ -88,7 +88,7 @@ export function createPluginContext(args: PluginContextArgs): ScopedPluginContex
   };
 
   const dispose = (): Promise<void> => {
-    closed = true; // before the first callback runs, which may be synchronous
+    isClosed = true; // before the first callback runs, which may be synchronous
     pending ??= (async () => {
       try {
         await store.dispose();

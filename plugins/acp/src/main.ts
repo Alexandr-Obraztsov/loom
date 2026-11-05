@@ -1,5 +1,6 @@
-import { definePlugin } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
+import { definePlugin } from "@loom/sdk";
+
 import { AgentRegistryRef, SessionsRef } from "./api.js";
 import { launchProcess } from "./main/process.js";
 import { createAgentRegistry } from "./main/registry.js";

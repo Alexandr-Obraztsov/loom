@@ -1,8 +1,8 @@
 import { LoomError } from "./errors.js";
-import { arrange } from "./hook-order.js";
 import type { RankOf } from "./hook-order.js";
-import { report, runChain } from "./hook-run.js";
+import { arrange } from "./hook-order.js";
 import type { Runtime, Tap, TapFn } from "./hook-run.js";
+import { ChainRun, report } from "./hook-run.js";
 import type { HookRef, Next, TapOptions } from "./types.js";
 
 /**
@@ -18,14 +18,14 @@ interface TapInfo {
   readonly priority: number;
 }
 
+/** Tap options plus the plugin the tap belongs to. */
+interface OwnedTapOptions<C> extends TapOptions<C> {
+  readonly owner: string;
+}
+
 export interface HookRegistry {
   /** Returns an idempotent remover for exactly this tap. */
-  tap<C, R>(
-    hook: HookRef<C, R>,
-    owner: string,
-    opts: TapOptions<C>,
-    fn: (ctx: C, next: Next<C, R>) => R,
-  ): () => void;
+  tap<C, R>(hook: HookRef<C, R>, opts: OwnedTapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R): () => void;
   run<C, R>(hook: HookRef<C, R>, ctx: C, fallback: (ctx: C) => R): R;
   removeOwner(owner: string): void;
   /** Snapshots of the taps in execution order, for introspection. */
@@ -117,10 +117,10 @@ function insertSorted(state: HookState, tap: Tap, rankOf: RankOf | undefined): v
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     const t = list[mid] as Tap;
-    const after =
+    const isAfter =
       t.priority < tap.priority ||
       (t.priority === tap.priority && (state.ranks.get(t.owner) ?? 0) > rank);
-    if (after) hi = mid;
+    if (isAfter) hi = mid;
     else lo = mid + 1;
   }
   const next = list.slice();
@@ -175,10 +175,10 @@ function createOrdering(
     settled,
     defer: () => {
       batches++;
-      let open = true;
+      let isOpen = true;
       return () => {
-        if (!open) return;
-        open = false;
+        if (!isOpen) return;
+        isOpen = false;
         if (--batches > 0) return;
         for (const state of [...stale]) settled(state);
       };
@@ -187,21 +187,19 @@ function createOrdering(
 }
 
 function newTap<C, R>(
-  hookId: string,
-  owner: string,
-  o: TapOptions<C>,
+  at: { readonly hookId: string; readonly seq: number },
+  o: OwnedTapOptions<C>,
   fn: (ctx: C, next: Next<C, R>) => R,
-  seq: number,
 ): Tap {
   return {
-    hookId,
-    owner,
+    hookId: at.hookId,
+    owner: o.owner,
     priority: o.priority ?? 0,
     before: o.before ?? [],
     after: o.after ?? [],
     match: o.match as ((ctx: unknown) => boolean) | undefined,
     fn: fn as unknown as TapFn,
-    seq,
+    seq: at.seq,
   };
 }
 
@@ -217,12 +215,8 @@ export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
   let seq = 0;
 
   return {
-    tap<C, R>(
-      hook: HookRef<C, R>,
-      owner: string,
-      o: TapOptions<C>,
-      fn: (ctx: C, next: Next<C, R>) => R,
-    ): () => void {
+    tap<C, R>(hook: HookRef<C, R>, o: OwnedTapOptions<C>, fn: (ctx: C, next: Next<C, R>) => R): () => void {
+      const { owner } = o;
       let state = hooks.get(hook.id);
       if (state === undefined) {
         state = {
@@ -236,7 +230,7 @@ export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
         };
         hooks.set(hook.id, state);
       }
-      const tap = newTap(hook.id, owner, o, fn, seq++);
+      const tap = newTap({ hookId: hook.id, seq: seq++ }, o, fn);
       state.taps.add(tap);
       if (isConstrained(tap)) state.constrained++;
       let owned = byOwner.get(owner);
@@ -255,7 +249,7 @@ export function createHookRegistry(opts: HookRegistryOptions): HookRegistry {
     },
     run<C, R>(hook: HookRef<C, R>, ctx: C, fallback: (ctx: C) => R): R {
       const list = settled(hooks.get(hook.id));
-      return runChain(rt, hook, list, ctx, fallback as (ctx: unknown) => unknown) as R;
+      return new ChainRun(rt, hook, fallback as (ctx: unknown) => unknown).run(list, ctx) as R;
     },
     removeOwner(owner: string): void {
       const owned = byOwner.get(owner);

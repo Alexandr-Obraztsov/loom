@@ -1,7 +1,9 @@
 import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
-import { boot, kernels, pidFile } from "./boot.js";
+
 import type { Sessions } from "../src/api.js";
+import { boot, kernels, pidFile } from "./boot.js";
 import { itemsOf, only } from "./helpers.js";
 
 const text = async (s: Sessions, id: string) =>

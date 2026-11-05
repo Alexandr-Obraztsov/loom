@@ -1,5 +1,6 @@
-import { attach, definePlugin } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
+import { attach, definePlugin } from "@loom/sdk";
+
 import { ChatSessionRef } from "./api.js";
 import { ChatSessionDriverRef, ChatView, createChatSession } from "./timeline.js";
 

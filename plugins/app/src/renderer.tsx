@@ -1,7 +1,8 @@
-import type { ComponentType, ReactNode } from "react";
 import { Render } from "@loom/react";
-import { definePlugin } from "@loom/sdk";
 import type { PluginDefinition, ResolvedNode } from "@loom/sdk";
+import { definePlugin } from "@loom/sdk";
+import type { ComponentType, ReactNode } from "react";
+
 import { NavigationRef } from "./api.js";
 import { createNavigation } from "./navigation.js";
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createHook, createServiceRef, definePlugin } from "../../src/core/definitions.js";
+
 import { createPluginContext } from "../../src/core/context.js";
+import { createHook, createServiceRef, definePlugin } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { createEventBus } from "../../src/core/events.js";
 import { createHookRegistry } from "../../src/core/hooks.js";

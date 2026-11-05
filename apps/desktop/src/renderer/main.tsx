@@ -1,9 +1,10 @@
-import { createRoot } from "react-dom/client";
 import { createKernel, createRpcEndpoint } from "@loom/kernel";
-import { HostRef } from "@loom/sdk";
 import { KernelProvider, RenderRoot } from "@loom/react";
-import config from "../../../../builds/minimal/loom.config.json";
+import { HostRef } from "@loom/sdk";
+import { createRoot } from "react-dom/client";
 import { plugins } from "virtual:loom/renderer-plugins";
+
+import config from "../../../../builds/minimal/loom.config.json";
 import { createPortTransport } from "./transport.js";
 
 /** Main sends the port right after the page loads; listen before anything else awaits. */

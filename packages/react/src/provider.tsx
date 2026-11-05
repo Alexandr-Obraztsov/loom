@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext } from "react";
-import type { ReactNode } from "react";
 import type { HookRef, Kernel, ServiceRef } from "@loom/kernel";
+import type { ReactNode } from "react";
+import { createContext, useCallback, useContext } from "react";
 
 const KernelContext = createContext<Kernel | undefined>(undefined);
 

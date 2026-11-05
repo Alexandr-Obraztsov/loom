@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
-import { channelOf, createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { RpcEndpoint } from "../../src/rpc/endpoint.js";
-import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
+import { channelOf, createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { MemoryTransport } from "../../src/rpc/memory-transport.js";
-import { createAbortController, microtask, startTimer } from "../../src/rpc/platform.js";
+import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import type { AbortSignalLike } from "../../src/rpc/platform.js";
+import { createAbortController, microtask, startTimer } from "../../src/rpc/platform.js";
 import type { RpcMessage, Transport } from "../../src/rpc/protocol.js";
 import { rejection } from "../core/kernel-helpers.js";
 
@@ -122,7 +123,7 @@ describe("rpc endpoint close", () => {
     expect((await rejection(call)).code).toBe("RPC_DISCONNECTED");
     expect(signal?.aborted).toBe(true);
     expect((await rejection(a.call("hang", "m", []))).code).toBe("RPC_DISCONNECTED");
-    expect(channelOf(a).closed).toBe(true);
+    expect(channelOf(a).isClosed).toBe(true);
   });
 
   it("endpoint.close answers in-flight incoming calls with RPC_DISCONNECTED and rejects its own", async () => {
@@ -239,6 +240,6 @@ describe("rpc endpoint reply failures", () => {
     process.off("unhandledRejection", onUnhandled);
     expect(unhandled).toEqual([]);
     expect(reports.map((e) => e.code)).toEqual(["RPC_REMOTE_ERROR"]);
-    expect(channelOf(b).closed).toBe(true);
+    expect(channelOf(b).isClosed).toBe(true);
   });
 });

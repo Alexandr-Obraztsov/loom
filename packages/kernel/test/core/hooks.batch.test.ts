@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
@@ -18,9 +19,9 @@ describe("hook registry batches (defer)", () => {
   it("orders and reports once, when the batch ends", () => {
     const { reg, errors, owners } = setup();
     const end = reg.defer();
-    reg.tap(sync, "a", { before: ["b"] }, pass);
-    reg.tap(sync, "b", { before: ["a"] }, pass);
-    reg.tap(sync, "c", { priority: 5 }, pass);
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass);
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass);
+    reg.tap(sync, { owner: "c", priority: 5 }, pass);
     expect(errors).toHaveLength(0);
     end();
     expect(errors).toHaveLength(1);
@@ -34,13 +35,13 @@ describe("hook registry batches (defer)", () => {
     const { reg, errors, owners } = setup();
     const end = reg.defer();
     const seen: string[] = [];
-    reg.tap(sync, "low", {}, (c, n) => (seen.push("low"), n(c)));
-    reg.tap(sync, "high", { priority: 1 }, (c, n) => (seen.push("high"), n(c)));
+    reg.tap(sync, { owner: "low" }, (c, n) => (seen.push("low"), n(c)));
+    reg.tap(sync, { owner: "high", priority: 1 }, (c, n) => (seen.push("high"), n(c)));
     expect(reg.run(sync, 1, (c) => c)).toBe(1);
     expect(seen).toEqual(["high", "low"]);
     expect(owners()).toEqual(["high", "low"]);
-    reg.tap(sync, "x", { before: ["y"] }, pass);
-    reg.tap(sync, "y", { before: ["x"] }, pass);
+    reg.tap(sync, { owner: "x", before: ["y"] }, pass);
+    reg.tap(sync, { owner: "y", before: ["x"] }, pass);
     expect(owners()).toEqual(["high", "low", "x", "y"]);
     expect(errors).toHaveLength(1);
     end();
@@ -51,8 +52,8 @@ describe("hook registry batches (defer)", () => {
     const { reg, errors } = setup();
     const outer = reg.defer();
     const inner = reg.defer();
-    reg.tap(sync, "a", { before: ["b"] }, pass);
-    reg.tap(sync, "b", { before: ["a"] }, pass);
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass);
+    reg.tap(sync, { owner: "b", before: ["a"] }, pass);
     inner();
     inner();
     expect(errors).toHaveLength(0);
@@ -63,8 +64,8 @@ describe("hook registry batches (defer)", () => {
   it("a contradiction that exists only inside the batch is never reported", () => {
     const { reg, errors, owners } = setup();
     const end = reg.defer();
-    reg.tap(sync, "a", { before: ["b"] }, pass);
-    const off = reg.tap(sync, "b", { before: ["a"] }, pass);
+    reg.tap(sync, { owner: "a", before: ["b"] }, pass);
+    const off = reg.tap(sync, { owner: "b", before: ["a"] }, pass);
     off();
     off();
     end();
@@ -74,10 +75,10 @@ describe("hook registry batches (defer)", () => {
 
   it("removing every tap inside a batch drops the hook; removeOwner touches only its hooks", () => {
     const { reg, owners } = setup();
-    reg.tap(other, "keep", {}, pass);
+    reg.tap(other, { owner: "keep" }, pass);
     const end = reg.defer();
-    reg.tap(sync, "gone", {}, pass);
-    reg.tap(sync, "gone", { priority: 1 }, pass);
+    reg.tap(sync, { owner: "gone" }, pass);
+    reg.tap(sync, { owner: "gone", priority: 1 }, pass);
     reg.removeOwner("gone");
     reg.removeOwner("gone");
     end();
@@ -89,8 +90,8 @@ describe("hook registry batches (defer)", () => {
   it("reorder inside a batch applies the new ranks when the batch ends", () => {
     const ranks: Record<string, number> = { a: 0, b: 1 };
     const { reg, owners } = setup((o) => ranks[o] ?? 9);
-    reg.tap(sync, "b", {}, pass);
-    reg.tap(sync, "a", {}, pass);
+    reg.tap(sync, { owner: "b" }, pass);
+    reg.tap(sync, { owner: "a" }, pass);
     expect(owners()).toEqual(["a", "b"]);
     const end = reg.defer();
     ranks.a = 2;

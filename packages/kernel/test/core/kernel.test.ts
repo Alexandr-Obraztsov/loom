@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { createKernel, KERNEL_ID } from "../../src/core/kernel.js";
 import { KernelRuntime } from "../../src/core/kernel-runtime.js";
-import type { PluginContext } from "../../src/core/types.js";
-import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
+import { PluginsRef } from "../../src/core/plugins-service.js";
+import type { PluginContext } from "../../src/core/types.js";
 import { ids, must, plugin, refOf, rejection, thrown } from "./kernel-helpers.js";
 
 const hook = createHook<number, number>("k.hook", { mode: "sync" });

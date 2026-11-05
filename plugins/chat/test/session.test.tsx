@@ -1,8 +1,9 @@
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { ChatSessionRef } from "../src/api.js";
-import { FakeSessions, agent, user } from "./fixtures.js";
-import { PROJECT_DIR, applyUpdate, bootChat, disposeKernels, renderApp, settle } from "./boot.js";
+import { applyUpdate, bootChat, disposeKernels, PROJECT_DIR, renderApp, settle } from "./boot.js";
+import { agent, FakeSessions, user } from "./fixtures.js";
 
 afterEach(async () => {
   cleanup();
@@ -83,7 +84,7 @@ describe("chat: остановка", () => {
 
   it("отказ waitUpdates после размонтирования не будит цикл", async () => {
     const sessions = new FakeSessions();
-    sessions.failWaitOnDemand = true;
+    sessions.shouldFailWaitOnDemand = true;
     const kernel = await bootChat(sessions);
     const view = renderApp(kernel);
     await settle();

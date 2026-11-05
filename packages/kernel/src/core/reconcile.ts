@@ -1,8 +1,8 @@
 import { deepEqual } from "./equal.js";
 import { LoomError } from "./errors.js";
 import { dependentsOf, resolveOrder } from "./graph.js";
-import { indexEntries } from "./tree-index.js";
 import type { TreeEntry, TreeIndexConfig } from "./tree-index.js";
+import { indexEntries } from "./tree-index.js";
 import type { PluginDefinition } from "./types.js";
 
 export interface ReconcileDiff {
@@ -53,6 +53,15 @@ function checkExtensionConflicts(defs: readonly PluginDefinition[], tree: TreeIn
   });
 }
 
+/** Optional inputs of `planReconcile`. */
+export interface PlanOptions {
+  /** Ids reloaded even though their definition did not change. */
+  readonly force?: ReadonlySet<string>;
+  readonly tree?: TreeIndexConfig;
+}
+
+const NO_FORCE: ReadonlySet<string> = new Set();
+
 /**
  * Pure planning step: resolves the desired order (throws MANIFEST_INVALID /
  * DEPENDENCY_* before anything runs) and computes what must be torn down and
@@ -65,9 +74,9 @@ function checkExtensionConflicts(defs: readonly PluginDefinition[], tree: TreeIn
 export function planReconcile(
   current: readonly PluginDefinition[],
   desired: readonly PluginDefinition[],
-  force: ReadonlySet<string> = new Set(),
-  tree: TreeIndexConfig = {},
+  options: PlanOptions = {},
 ): ReconcilePlan {
+  const { force = NO_FORCE, tree = {} } = options;
   const { order } = resolveOrder(desired);
   checkExtensionConflicts(order, tree);
   const before = new Map(current.map((p) => [p.id, p]));
@@ -139,20 +148,25 @@ export async function applyReconcile(plan: ReconcilePlan, rt: ReconcileRuntime):
     } catch (cause) {
       for (const d of done.reverse()) await rt.teardown(d);
       rt.restore();
-      const notRestored = await restoreSnapshot(plan, rt);
-      const causeCode = rootCauseCode(cause);
-      const details = {
-        ...(causeCode ? { causeCode } : {}),
-        ...(notRestored.length > 0 ? { rollbackFailed: true, notRestored } : {}),
-      };
-      throw new LoomError("SETUP_FAILED", `Setup of plugin "${def.id}" failed${notRestored.length > 0 ? "; rollback failed" : ""}`, {
-        pluginIds: cause instanceof LoomError ? [...new Set([def.id, ...cause.pluginIds])] : [def.id],
-        cause,
-        ...(Object.keys(details).length > 0 ? { details } : {}),
-      });
+      throw setupFailure(def, cause, await restoreSnapshot(plan, rt));
     }
     done.push(def);
   }
+}
+
+/** The SETUP_FAILED for `def`; `notRestored` lists the plugins the rollback could not bring back. */
+function setupFailure(def: PluginDefinition, cause: unknown, notRestored: readonly string[]): LoomError {
+  const hasRollbackFailed = notRestored.length > 0;
+  const causeCode = rootCauseCode(cause);
+  const details = {
+    ...(causeCode ? { causeCode } : {}),
+    ...(hasRollbackFailed ? { rollbackFailed: true, notRestored } : {}),
+  };
+  return new LoomError("SETUP_FAILED", `Setup of plugin "${def.id}" failed${hasRollbackFailed ? "; rollback failed" : ""}`, {
+    pluginIds: cause instanceof LoomError ? [...new Set([def.id, ...cause.pluginIds])] : [def.id],
+    cause,
+    ...(Object.keys(details).length > 0 ? { details } : {}),
+  });
 }
 
 /** The cause's code; a SETUP_FAILED that itself carries a `causeCode` (a refused re-entrant call) passes that one on. */

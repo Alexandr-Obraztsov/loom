@@ -1,4 +1,5 @@
 import { bench, describe } from "vitest";
+
 import { createKernel } from "../src/core/kernel.js";
 import { perfPlugin, perfPlugins } from "../test/perf-fixtures.js";
 

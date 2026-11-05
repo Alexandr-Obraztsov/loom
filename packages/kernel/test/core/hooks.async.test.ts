@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
@@ -15,13 +16,13 @@ describe("hook registry (async) 1", () => {
   it("async hook awaits each tap", async () => {
     const { reg } = setup();
     const seen: string[] = [];
-    reg.tap(asyncHook, "a", { priority: 1 }, async (c, n) => {
+    reg.tap(asyncHook, { owner: "a", priority: 1 }, async (c, n) => {
       seen.push("a-in");
       const r = await n(c + 1);
       seen.push("a-out");
       return r * 2;
     });
-    reg.tap(asyncHook, "b", {}, async (c, n) => {
+    reg.tap(asyncHook, { owner: "b" }, async (c, n) => {
       await Promise.resolve();
       seen.push("b-in");
       return n(c + 1);
@@ -32,8 +33,8 @@ describe("hook registry (async) 1", () => {
 
   it("async: sync throw becomes a rejection, rejection is wrapped once", async () => {
     const { reg, errors } = setup();
-    reg.tap(asyncHook, "outer", { priority: 1 }, (c, n) => n(c));
-    reg.tap(asyncHook, "inner", {}, () => {
+    reg.tap(asyncHook, { owner: "outer", priority: 1 }, (c, n) => n(c));
+    reg.tap(asyncHook, { owner: "inner" }, () => {
       throw new Error("sync boom");
     });
     const p = reg.run(asyncHook, 0, (c) => Promise.resolve(c));
@@ -45,7 +46,7 @@ describe("hook registry (async) 1", () => {
   it("async: rejection from tap is wrapped with owner and cause", async () => {
     const { reg, errors } = setup();
     const cause = new Error("nope");
-    reg.tap(asyncHook, "a", {}, () => Promise.reject(cause));
+    reg.tap(asyncHook, { owner: "a" }, () => Promise.reject(cause));
     await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({
       pluginIds: ["a"],
       cause,
@@ -56,7 +57,7 @@ describe("hook registry (async) 1", () => {
   it("async: next twice rejects on the second call, first result unaffected", async () => {
     const { reg, errors } = setup();
     let first: number | undefined;
-    reg.tap(asyncHook, "a", {}, async (c, n) => {
+    reg.tap(asyncHook, { owner: "a" }, async (c, n) => {
       first = await n(c);
       return n(c);
     });
@@ -71,7 +72,7 @@ describe("hook registry (async) 1", () => {
 describe("hook registry (async) 2", () => {
   it("async: fallback sync throw rejects, not wrapped by taps", async () => {
     const { reg, errors } = setup();
-    reg.tap(asyncHook, "a", {}, (c, n) => n(c));
+    reg.tap(asyncHook, { owner: "a" }, (c, n) => n(c));
     const boom = new Error("fb");
     await expect(
       reg.run(asyncHook, 0, () => {
@@ -85,14 +86,9 @@ describe("hook registry (async) 2", () => {
   it("async: match throwing rejects", async () => {
     const { reg } = setup();
     reg.tap(
-      asyncHook,
-      "m",
-      {
-        match: () => {
+      asyncHook, { owner: "m", match: () => {
           throw new Error("bad match");
-        },
-      },
-      (c, n) => n(c),
+        }, }, (c, n) => n(c),
     );
     await expect(reg.run(asyncHook, 0, (c) => Promise.resolve(c))).rejects.toMatchObject({
       pluginIds: ["m"],
@@ -104,8 +100,8 @@ describe("hook registry (async passthrough)", () => {
   it("accepts plain values from async-hook taps and fallbacks", async () => {
     const { reg } = setup();
     const plain = asyncHook;
-    reg.tap(plain, "a", {}, (c, n) => n(c));
-    reg.tap(plain, "b", { priority: -1 }, ((c: number, n: (c: number) => unknown) =>
+    reg.tap(plain, { owner: "a" }, (c, n) => n(c));
+    reg.tap(plain, { owner: "b", priority: -1 }, ((c: number, n: (c: number) => unknown) =>
       n(c)) as never);
     const fb = ((c: number) => c + 1) as unknown as (c: number) => Promise<number>;
     await expect(Promise.resolve(reg.run(plain, 1, fb))).resolves.toBe(2);

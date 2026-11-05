@@ -59,7 +59,7 @@ function place(id: string, group: readonly TreeEntry[], config: TreeIndexConfig)
   // group is never empty, and neither is whichever of overrides/originals was picked
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under noUncheckedIndexedAccess in tsc
   const chosen = winner ?? (candidates[0] as TreeEntry);
-  const contested = candidates.length > 1 && winner === undefined;
+  const isContested = candidates.length > 1 && winner === undefined;
   // An override swaps just the factory unless it declares its own placement.
   const original = overrides.length > 0 ? (originals.find((o) => o.pluginId === winnerId) ?? originals[0]) : undefined;
   return {
@@ -68,7 +68,7 @@ function place(id: string, group: readonly TreeEntry[], config: TreeIndexConfig)
     ext: chosen.ext,
     attach: config.attach?.[id] ?? chosen.ext.attachTo ?? original?.ext.attachTo,
     inputs: chosen.ext.inputs ?? original?.ext.inputs,
-    conflict: contested ? [...new Set(candidates.map((c) => c.pluginId))] : undefined,
+    conflict: isContested ? [...new Set(candidates.map((c) => c.pluginId))] : undefined,
   };
 }
 

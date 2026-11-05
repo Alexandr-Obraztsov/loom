@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
 import type { SessionItem, SessionSnapshot } from "@loom/plugin-acp";
-import { createHook, createServiceRef } from "@loom/sdk";
 import type { HookRef, ServiceRef } from "@loom/sdk";
+import { createHook, createServiceRef } from "@loom/sdk";
+import type { ReactNode } from "react";
 
 /**
  * Живое состояние сеанса для композера и других потребителей.

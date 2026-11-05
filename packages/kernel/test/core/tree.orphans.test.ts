@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { buildTree } from "../../src/core/tree.js";
 import type { Entry } from "./tree-helpers.js";
 import { at, e, ext, use } from "./tree-helpers.js";
@@ -13,8 +14,8 @@ const chain = (): Entry[] => [
 
 describe("orphan reasons along a detached chain", () => {
   it("are the same whichever end the walk starts from", () => {
-    const forward = buildTree(chain(), {}, use).orphans;
-    const backward = buildTree(chain().reverse(), {}, use).orphans;
+    const forward = buildTree(chain(), {}, { use }).orphans;
+    const backward = buildTree(chain().reverse(), {}, { use }).orphans;
     const view = (o: typeof forward): unknown[] => o.map((x) => [x.id, x.reason.message, x.reason.pluginIds]);
     expect(view(backward)).toEqual(view(forward));
     expect(view(forward)).toEqual([

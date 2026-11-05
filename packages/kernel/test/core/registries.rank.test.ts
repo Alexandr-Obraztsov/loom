@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook, createServiceRef } from "../../src/core/definitions.js";
 import { createEventBus } from "../../src/core/events.js";
 import { createHookRegistry } from "../../src/core/hooks.js";
@@ -21,7 +22,7 @@ describe("hook registry rankOf", () => {
     setRanks("y", "x", "w");
     const reg = createHookRegistry({ onError: () => undefined, rankOf });
     const tap = (owner: string, priority = 0, before: string[] = []): void => {
-      reg.tap(chain, owner, { priority, before }, (l, next) => next([...l, owner]));
+      reg.tap(chain, { owner, priority, before }, (l, next) => next([...l, owner]));
     };
     tap("x");
     tap("y");
@@ -34,8 +35,8 @@ describe("hook registry rankOf", () => {
   it("reorder applies changed ranks", () => {
     setRanks("a", "b");
     const reg = createHookRegistry({ onError: () => undefined, rankOf });
-    reg.tap(chain, "b", {}, (l, next) => next([...l, "b"]));
-    reg.tap(chain, "a", {}, (l, next) => next([...l, "a"]));
+    reg.tap(chain, { owner: "b" }, (l, next) => next([...l, "b"]));
+    reg.tap(chain, { owner: "a" }, (l, next) => next([...l, "a"]));
     expect(reg.taps(chain).map((t) => t.owner)).toEqual(["a", "b"]);
     setRanks("b", "a");
     expect(reg.taps(chain).map((t) => t.owner)).toEqual(["a", "b"]);
@@ -45,8 +46,8 @@ describe("hook registry rankOf", () => {
 
   it("without rankOf, ties keep registration order", () => {
     const reg = createHookRegistry({ onError: () => undefined });
-    reg.tap(chain, "b", {}, (l, next) => next([...l, "b"]));
-    reg.tap(chain, "a", {}, (l, next) => next([...l, "a"]));
+    reg.tap(chain, { owner: "b" }, (l, next) => next([...l, "b"]));
+    reg.tap(chain, { owner: "a" }, (l, next) => next([...l, "a"]));
     reg.reorder();
     expect(reg.run(chain, [], (l) => l)).toEqual(["b", "a"]);
   });

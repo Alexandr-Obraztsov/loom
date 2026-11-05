@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
 import { createKernel } from "@loom/kernel";
-import { definePlugin } from "@loom/sdk";
-import { AgentRegistryRef } from "@loom/plugin-acp";
 import type { AgentSpec } from "@loom/plugin-acp";
+import { AgentRegistryRef } from "@loom/plugin-acp";
+import { definePlugin } from "@loom/sdk";
+import { describe, expect, it } from "vitest";
+
 import { overrideAgent } from "../src/main/agent-command.js";
 
 /** A kernel whose registry just records what is added. */

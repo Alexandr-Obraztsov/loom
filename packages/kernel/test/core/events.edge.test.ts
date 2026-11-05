@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createEventBus } from "../../src/core/events.js";
+
 import type { LoomError } from "../../src/core/errors.js";
+import { createEventBus } from "../../src/core/events.js";
 
 function setup() {
   const errors: LoomError[] = [];
@@ -48,11 +49,11 @@ describe("event bus edge cases", () => {
   it("a subscription made while a nested emit is running does not disturb the outer snapshot", () => {
     const { bus } = setup();
     const seen: string[] = [];
-    let done = false;
+    let isDone = false;
     bus.on("t", "a", () => {
       seen.push("a");
-      if (!done) {
-        done = true;
+      if (!isDone) {
+        isDone = true;
         bus.emit("t", 0);
       }
     });

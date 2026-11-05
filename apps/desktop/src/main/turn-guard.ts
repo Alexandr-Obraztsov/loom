@@ -1,6 +1,6 @@
 import { PromptHook, SessionsRef } from "@loom/plugin-acp";
-import { definePlugin } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
+import { definePlugin } from "@loom/sdk";
 
 export interface TurnGuard {
   readonly plugin: PluginDefinition;

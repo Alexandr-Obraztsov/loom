@@ -1,5 +1,6 @@
-import { HostRef, definePlugin, provideRemoteServices } from "@loom/sdk";
 import type { PluginDefinition } from "@loom/sdk";
+import { definePlugin, HostRef, provideRemoteServices } from "@loom/sdk";
+
 import { AgentRegistryRef, SessionsRef } from "./api.js";
 
 /** Renderer side of acp: proxies the main-side Sessions and AgentRegistry over the host endpoint. */
@@ -8,7 +9,7 @@ const plugin: PluginDefinition = definePlugin({
   version: "0.1.0",
   setup(ctx) {
     const host = ctx.use(HostRef);
-    provideRemoteServices(ctx, host.endpoint, [SessionsRef, AgentRegistryRef]);
+    provideRemoteServices(ctx, { endpoint: host.endpoint, refs: [SessionsRef, AgentRegistryRef] });
   },
 });
 

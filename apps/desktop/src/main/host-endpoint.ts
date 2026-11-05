@@ -1,5 +1,5 @@
-import { LoomError } from "@loom/sdk";
 import type { RpcEndpoint, RpcHandler } from "@loom/sdk";
+import { LoomError } from "@loom/sdk";
 
 export interface SwitchableEndpoint {
   /** What main plugins see as `HostRef.endpoint`: always talks to the current window page. */
@@ -14,9 +14,9 @@ export function createSwitchableEndpoint(): SwitchableEndpoint {
   let current: { peer: RpcEndpoint; removers: (() => void)[] } | undefined;
   return {
     endpoint: {
-      call: (target, method, args, signal) =>
+      call: (...args) =>
         current
-          ? current.peer.call(target, method, args, signal)
+          ? current.peer.call(...args)
           : Promise.reject(new LoomError("RPC_DISCONNECTED", "No window page is connected")),
       handle: (target, impl) => {
         if (handlers.has(target)) {

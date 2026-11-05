@@ -1,7 +1,9 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
+
 import { resolveProjectDir } from "../src/main/project.js";
 
 const scratch = (): string => mkdtempSync(join(tmpdir(), "loom-project-"));

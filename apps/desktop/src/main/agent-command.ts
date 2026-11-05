@@ -1,5 +1,5 @@
-import { AgentRegistryRef } from "@loom/plugin-acp";
 import type { Kernel } from "@loom/kernel";
+import { AgentRegistryRef } from "@loom/plugin-acp";
 
 /**
  * Test hook: `LOOM_AGENT_COMMAND="node /abs/agent.mjs"` replaces the `claude-code` agent.

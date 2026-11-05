@@ -67,13 +67,20 @@ export function sameMembers(snapshot: readonly string[], allowed: ReadonlySet<st
 const notCallable = (id: string, prop: PropertyKey): TypeError =>
   new TypeError(`"${String(prop)}" of service "${id}" is no longer a function`);
 
+/** The service behind a proxy: its ref id (for errors) and the implementation active right now. */
+export interface ServiceSource {
+  readonly id: string;
+  readonly current: () => object;
+}
+
 /**
  * A function-valued member of a service as seen through its proxy: it re-resolves on every call, so a held
  * reference keeps forwarding to the active implementation. A plain method (no `prototype`, no statics) gets a
  * bare forwarding arrow; a class or other function with a prototype or statics is mirrored (name, length,
  * `new`, `prototype` and the statics).
  */
-export function forwarder(raw: Fn, prop: PropertyKey, id: string, current: () => object): Fn {
+export function forwarder(raw: Fn, prop: PropertyKey, source: ServiceSource): Fn {
+  const { id, current } = source;
   if (!Object.hasOwn(raw, "prototype") && !hasStatics(raw)) {
     // a plain method: a bare forwarding arrow; mirroring name/length would cost two defineProperty calls per proxy member
     return (...args: unknown[]): unknown => {
@@ -162,7 +169,8 @@ function deliver(errors: readonly unknown[], sink: (e: unknown) => void): unknow
   return failed;
 }
 
-export function conflictError(refId: string, existing: string, incoming: string, what: string): LoomError {
+export function conflictError(refId: string, owners: { existing: string; incoming: string }, what: string): LoomError {
+  const { existing, incoming } = owners;
   return new LoomError(
     "SERVICE_CONFLICT",
     `service "${refId}" already has a ${what} from "${existing}"; "${incoming}" cannot ${what} it too`,

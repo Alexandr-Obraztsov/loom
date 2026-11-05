@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+
 import { buildTree } from "../../src/core/tree.js";
 import type { ResolvedNode } from "../../src/core/types.js";
 import type { Entry } from "./tree-helpers.js";
@@ -14,7 +15,7 @@ function line(n: number, pluginOf: (k: number) => string = () => "p"): Entry[] {
 
 describe("buildTree depth", () => {
   it("builds a chain 10 000 deep without a RangeError and lists no errors", () => {
-    const r = buildTree(line(10_000), {}, use);
+    const r = buildTree(line(10_000), {}, { use });
     expect(r.errors).toEqual([]);
     let depth = 0;
     for (let n = r.root; n; n = (n.inputs["slot"] as ResolvedNode[])[0]) depth++;
@@ -24,7 +25,7 @@ describe("buildTree depth", () => {
   it("collects the errors of a 10 000 deep chain without recursion, in tree order", () => {
     const entries = line(10_000);
     entries[9_999] = e("p", ext("e9999", { attachTo: at("e9998", "slot"), factory: () => { throw new Error("deep"); } }));
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.errors.map((x) => x.code)).toEqual(["EXTENSION_FACTORY_FAILED"]);
   });
 
@@ -38,7 +39,7 @@ describe("buildTree depth", () => {
       e("p", ext("a2", { attachTo: at("app", "a"), factory: f("a2"), order: 1 })),
       e("p", ext("b1", { attachTo: at("app", "b"), factory: f("b1") })),
     ];
-    buildTree(entries, {}, use);
+    buildTree(entries, {}, { use });
     expect(calls).toEqual(["a1x", "a1", "a2", "b1", "app"]);
   });
 });
@@ -49,7 +50,7 @@ describe("orphan reasons at scale", () => {
       e(`p${String(k % 5)}`, ext(`x${String(k)}`, { attachTo: at(k === 0 ? "ghost" : `x${String(k - 1)}`, "slot"), inputs: slot })),
     );
     const start = performance.now();
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     const ms = performance.now() - start;
     expect(r.orphans).toHaveLength(1000);
     expect(r.errors).toHaveLength(1000);
@@ -64,7 +65,7 @@ describe("orphan reasons at scale", () => {
       e("p", ext("c2", { attachTo: at("c1", "slot"), inputs: slot })),
     ];
     const tail = Array.from({ length: 2000 }, (_, k) => e("r", ext(`t${String(k)}`, { attachTo: at(k === 0 ? "c0" : `t${String(k - 1)}`, "slot"), inputs: slot })));
-    const r = buildTree([...ring, ...tail], {}, use);
+    const r = buildTree([...ring, ...tail], {}, { use });
     expect(r.orphans).toHaveLength(2003);
     const chains = new Set(r.orphans.map((o) => (o.reason.details as { chain: string[] }).chain));
     expect(chains.size).toBe(1);
@@ -82,7 +83,7 @@ describe("node errors", () => {
       e("p", ext("x", { attachTo: at("app", "one") })),
       e("p", ext("y", { attachTo: at("app", "one") })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.root?.errors.map((x) => x.code)).toEqual(["EXTENSION_CONFLICT", "EXTENSION_CONFLICT"]);
     expect(r.root?.errors[0]?.message).toContain("provided by several plugins");
     expect(r.root?.errors[1]?.message).toContain('Input "one"');
@@ -97,7 +98,7 @@ describe("node errors", () => {
       e("p", ext("k2", { attachTo: at("app", "s"), inputs: { r: { required: true } }, order: 1 })),
       e("p", ext("k1c", { attachTo: at("k1", "r"), factory: () => { throw new Error("x"); } })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.errors.map((x) => [x.code, x.pluginIds])).toEqual([
       ["EXTENSION_INPUT_MISMATCH", ["p"]],
       ["EXTENSION_FACTORY_FAILED", ["p"]],
@@ -108,7 +109,7 @@ describe("node errors", () => {
   });
 
   it("a healthy node has no errors", () => {
-    expect(buildTree([e("p", ext("app"))], {}, use).root?.errors).toEqual([]);
+    expect(buildTree([e("p", ext("app"))], {}, { use }).root?.errors).toEqual([]);
   });
 });
 
@@ -121,8 +122,8 @@ describe("reuse", () => {
       ext("bad", { attachTo: at("mid", "slot"), factory: boom }),
     ];
     const entries = (): Entry[] => defs.map((d) => e("p", d));
-    const first = buildTree(entries(), {}, use);
-    const second = buildTree(entries(), {}, use, first);
+    const first = buildTree(entries(), {}, { use });
+    const second = buildTree(entries(), {}, { use, previous: first });
     expect(boom).toHaveBeenCalledTimes(2);
     expect(second).toBe(first);
     expect(second.root).toBe(first.root);
@@ -132,9 +133,9 @@ describe("reuse", () => {
     let msg = "one";
     const defs = [ext("app", { inputs: slot }), ext("bad", { attachTo: at("app", "slot"), factory: () => { throw new Error(msg); } })];
     const entries = (): Entry[] => defs.map((d) => e("p", d));
-    const first = buildTree(entries(), {}, use);
+    const first = buildTree(entries(), {}, { use });
     msg = "two";
-    expect(buildTree(entries(), {}, use, first).root).not.toBe(first.root);
+    expect(buildTree(entries(), {}, { use, previous: first }).root).not.toBe(first.root);
   });
 
   it("a factory that throws non-errors compares the thrown values by identity", () => {
@@ -142,10 +143,10 @@ describe("reuse", () => {
     let thrown: unknown = sym;
     const defs = [ext("app", { inputs: slot }), ext("bad", { attachTo: at("app", "slot"), factory: () => { throw thrown; } })];
     const entries = (): Entry[] => defs.map((d) => e("p", d));
-    const first = buildTree(entries(), {}, use);
-    expect(buildTree(entries(), {}, use, first).root).toBe(first.root);
+    const first = buildTree(entries(), {}, { use });
+    expect(buildTree(entries(), {}, { use, previous: first }).root).toBe(first.root);
     thrown = { not: "an error" };
-    expect(buildTree(entries(), {}, use, first).root).not.toBe(first.root);
+    expect(buildTree(entries(), {}, { use, previous: first }).root).not.toBe(first.root);
   });
 
 });
@@ -159,10 +160,10 @@ describe("reuse after configuration changes", () => {
       e("b", ext("w", { factory: () => "from-b" }), true),
     ];
     const entries = (): Entry[] => [...defs];
-    const first = buildTree(entries(), { winners: { w: "a" } }, use);
-    const again = buildTree(entries(), { winners: { w: "a" } }, use, first);
+    const first = buildTree(entries(), { winners: { w: "a" } }, { use });
+    const again = buildTree(entries(), { winners: { w: "a" } }, { use, previous: first });
     expect(again).toBe(first);
-    const second = buildTree(entries(), { winners: { w: "b" } }, use, first);
+    const second = buildTree(entries(), { winners: { w: "b" } }, { use, previous: first });
     expect(second.root).not.toBe(first.root);
     const slotOf = (r: typeof first): ResolvedNode => (r.root?.inputs["slot"] as ResolvedNode[])[0] as ResolvedNode;
     expect(slotOf(first).value).toBe("from-a");
@@ -173,8 +174,8 @@ describe("reuse after configuration changes", () => {
   it("disabling a node drops it and rebuilds its parent but reuses the untouched sibling", () => {
     const defs = [ext("app", { inputs: slot }), ext("a", { attachTo: at("app", "slot"), order: 0 }), ext("b", { attachTo: at("app", "slot"), order: 1 })];
     const entries = (): Entry[] => defs.map((d) => e("p", d));
-    const first = buildTree(entries(), {}, use);
-    const second = buildTree(entries(), { disabled: ["b"] }, use, first);
+    const first = buildTree(entries(), {}, { use });
+    const second = buildTree(entries(), { disabled: ["b"] }, { use, previous: first });
     const a1 = (first.root?.inputs["slot"] as ResolvedNode[])[0];
     const kids = second.root?.inputs["slot"] as ResolvedNode[];
     expect(second.root).not.toBe(first.root);
@@ -188,16 +189,16 @@ describe("reuse after configuration changes", () => {
     const defs = [ext("app", { inputs: slot }), ext("leaf", { attachTo: at("app", "slot"), factory: (c) => { c.use(svc); factory(); return 1; } })];
     const entries = (): Entry[] => defs.map((d) => e("p", d));
     const svcUse = ((r: { id: string }) => ({ id: r.id })) as unknown as typeof use;
-    const first = buildTree(entries(), {}, svcUse, undefined, () => 3);
-    expect(buildTree(entries(), {}, svcUse, first, () => 3)).toBe(first);
+    const first = buildTree(entries(), {}, { use: svcUse, serviceVersion: () => 3 });
+    expect(buildTree(entries(), {}, { use: svcUse, previous: first, serviceVersion: () => 3 })).toBe(first);
     expect(factory).toHaveBeenCalledTimes(1);
   });
 
   it("a reused schema-failed child names the current parent plugin", () => {
     const leaf = ext("leaf", { attachTo: at("app", "s"), factory: () => 1 });
     const parent = ext("app", { inputs: { s: { schema: z.string() } } });
-    const first = buildTree([e("p", parent), e("q", leaf)], {}, use);
-    const second = buildTree([e("p", parent), e("o", ext("app", {}), true), e("q", leaf)], {}, use, first);
+    const first = buildTree([e("p", parent), e("q", leaf)], {}, { use });
+    const second = buildTree([e("p", parent), e("o", ext("app", {}), true), e("q", leaf)], {}, { use, previous: first });
     const err = (r: typeof first): readonly string[] => (r.root?.inputs["s"] as ResolvedNode).errors[0]?.pluginIds ?? [];
     expect(err(first)).toEqual(["q", "p"]);
     expect(err(second)).toEqual(["q", "o"]);

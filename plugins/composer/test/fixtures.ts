@@ -1,4 +1,4 @@
-import type { SessionSnapshot, Sessions } from "@loom/plugin-acp";
+import type { Sessions,SessionSnapshot } from "@loom/plugin-acp";
 
 /**
  * Памятный Sessions для тестов композера: записывает prompt/cancel, отдаёт

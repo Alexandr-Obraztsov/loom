@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
 import { createKernel } from "../../src/core/kernel.js";

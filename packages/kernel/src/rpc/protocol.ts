@@ -1,5 +1,5 @@
-import { LoomError } from "../core/errors.js";
 import type { LoomErrorCode } from "../core/errors.js";
+import { LoomError } from "../core/errors.js";
 import { clone } from "./platform.js";
 
 /** A LoomError as it travels: `details` only when it survives `structuredClone`. */

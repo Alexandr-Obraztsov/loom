@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { DisposableStore } from "../../src/core/disposables.js";
 
 describe("DisposableStore", () => {
@@ -39,24 +40,24 @@ describe("DisposableStore", () => {
   it("add after dispose runs the disposer immediately", async () => {
     const store = new DisposableStore();
     await store.dispose();
-    let ran = false;
+    let wasRun = false;
     const remove = store.add(() => {
-      ran = true;
+      wasRun = true;
     });
-    expect(ran).toBe(true);
+    expect(wasRun).toBe(true);
     expect(remove).not.toThrow();
   });
 
   it("returned remover prevents that disposer from running", async () => {
     const store = new DisposableStore();
-    let ran = false;
+    let wasRun = false;
     const remove = store.add(() => {
-      ran = true;
+      wasRun = true;
     });
     remove();
     remove();
     await store.dispose();
-    expect(ran).toBe(false);
+    expect(wasRun).toBe(false);
   });
 
   it("dispose is idempotent", async () => {

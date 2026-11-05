@@ -1,5 +1,5 @@
-import { defineConfig } from "@playwright/test";
 import type { PlaywrightTestConfig } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
 
 const config: PlaywrightTestConfig = defineConfig({
   testDir: "e2e",

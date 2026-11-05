@@ -1,17 +1,18 @@
-import { AgentApp, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import type {
   AgentContext,
   RequestPermissionResponse,
   SessionUpdate,
   StopReason,
 } from "@agentclientprotocol/sdk";
+import { AgentApp, PROTOCOL_VERSION } from "@agentclientprotocol/sdk";
 import { expect, vi } from "vitest";
+
 import type { AgentRegistry, AgentSpec, SessionItem } from "../src/api.js";
 import type { AgentLink, ExitInfo, Launch } from "../src/main/process.js";
 import { createAgentRegistry } from "../src/main/registry.js";
-import { BATCH_MS } from "../src/main/updates.js";
-import { createSessions } from "../src/main/sessions.js";
 import type { SessionsDeps, SessionsManager } from "../src/main/sessions.js";
+import { createSessions } from "../src/main/sessions.js";
+import { BATCH_MS } from "../src/main/updates.js";
 
 export interface Turn {
   text: string;
@@ -29,7 +30,7 @@ class FakeLink implements AgentLink {
   killed = 0;
   stderr = "";
   private finish!: (info: ExitInfo) => void;
-  private done = false;
+  private isDone = false;
 
   constructor(connection: AgentLink["connection"]) {
     this.connection = connection;
@@ -55,8 +56,8 @@ class FakeLink implements AgentLink {
   }
 
   private stop(info: ExitInfo): void {
-    if (this.done) return;
-    this.done = true;
+    if (this.isDone) return;
+    this.isDone = true;
     this.connection.close();
     this.finish(info);
   }

@@ -1,6 +1,7 @@
-import { Component, useCallback, useSyncExternalStore } from "react";
-import type { ComponentType, ReactNode } from "react";
 import type { ResolvedNode, TreeResult } from "@loom/kernel";
+import type { ComponentType, ReactNode } from "react";
+import { Component, useCallback, useSyncExternalStore } from "react";
+
 import { useKernel } from "./provider.js";
 
 /** Re-renders when plugins change; the snapshot is the kernel's current (immutable) tree. */

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { planReconcile, presentOptional } from "../../src/core/reconcile.js";
 import { ids, plugin } from "./kernel-helpers.js";
 
@@ -16,7 +17,7 @@ describe("planReconcile", () => {
   });
 
   it("forced ids reload with their dependents even when the object is the same", () => {
-    const plan = planReconcile([a, b, c], [a, b, c], new Set(["a"]));
+    const plan = planReconcile([a, b, c], [a, b, c], { force: new Set(["a"]) });
     expect(ids(plan.teardown)).toEqual(["a", "b", "c"]);
     expect(ids(plan.setup)).toEqual(["a", "b", "c"]);
     expect(plan.diff.reloaded).toEqual(["a", "b", "c"]);

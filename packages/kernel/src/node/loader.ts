@@ -2,6 +2,7 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
+
 import { LoomError } from "../core/errors.js";
 import { validatePlugin } from "../core/manifest.js";
 import type { PluginDefinition } from "../core/types.js";
@@ -31,12 +32,19 @@ export interface LoadOptions {
 
 type Outcome = { skip: true } | { plugin: LoadedPlugin };
 
-/** `pluginId` is passed whenever `loom.id` is known; errors raised before that (package.json unreadable/invalid, no `loom.id`, directory errors) carry `pluginIds: []`. */
-const fail = (phase: Phase, message: string, extra: object = {}, cause?: unknown, pluginId?: string): LoomError =>
+/** What a loader failure may add to its `details.phase`: more details, the underlying error, the plugin it concerns. */
+interface FailExtras {
+  readonly details?: object;
+  readonly cause?: unknown;
+  /** Passed whenever `loom.id` is known; errors raised before that (package.json unreadable/invalid, no `loom.id`, directory errors) carry `pluginIds: []`. */
+  readonly pluginId?: string;
+}
+
+const fail = (phase: Phase, message: string, extras: FailExtras = {}): LoomError =>
   new LoomError("MANIFEST_INVALID", message, {
-    ...(pluginId === undefined ? {} : { pluginIds: [pluginId] }),
-    details: { phase, ...extra },
-    ...(cause === undefined ? {} : { cause }),
+    ...(extras.pluginId === undefined ? {} : { pluginIds: [extras.pluginId] }),
+    details: { phase, ...extras.details },
+    ...(extras.cause === undefined ? {} : { cause: extras.cause }),
   });
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -50,12 +58,12 @@ async function readManifest(dir: string): Promise<Record<string, unknown> | unde
     raw = await readFile(join(dir, "package.json"), "utf8");
   } catch (cause) {
     if (isEnoent(cause)) return undefined;
-    throw fail("package-json", `Cannot read package.json in ${dir}`, {}, cause);
+    throw fail("package-json", `Cannot read package.json in ${dir}`, { cause });
   }
   try {
     return JSON.parse(raw) as Record<string, unknown>;
   } catch (cause) {
-    throw fail("package-json", `Invalid JSON in ${join(dir, "package.json")}`, {}, cause);
+    throw fail("package-json", `Invalid JSON in ${join(dir, "package.json")}`, { cause });
   }
 }
 
@@ -66,7 +74,7 @@ function readLoomField(pkg: unknown, dir: string, kind: "main" | "renderer"): { 
   if (typeof loom["id"] !== "string") throw fail("package-json", `"loom.id" in ${dir}/package.json must be a string`);
   const entry = loom[kind];
   if (entry !== undefined && (typeof entry !== "string" || entry === "")) {
-    throw fail("package-json", `"loom.${kind}" in ${dir}/package.json must be a non-empty string`, {}, undefined, loom["id"]);
+    throw fail("package-json", `"loom.${kind}" in ${dir}/package.json must be a non-empty string`, { pluginId: loom["id"] });
   }
   return entry === undefined ? { id: loom["id"] } : { id: loom["id"], entry };
 }
@@ -75,26 +83,26 @@ function resolveEntry(dir: string, id: string, rel: string): string {
   const full = resolve(dir, rel);
   const back = relative(dir, full);
   if (isAbsolute(rel) || back === "" || back === ".." || back.startsWith(`..${sep}`) || isAbsolute(back)) {
-    throw fail("package-json", `Entry "${rel}" of "${id}" must stay inside ${dir}`, { entry: rel }, undefined, id);
+    throw fail("package-json", `Entry "${rel}" of "${id}" must stay inside ${dir}`, { details: { entry: rel }, pluginId: id });
   }
   return full;
 }
 
-async function importDefinition(entry: string, id: string, cacheBust: boolean): Promise<Record<string, unknown>> {
+async function importDefinition(entry: string, id: string, shouldCacheBust: boolean): Promise<Record<string, unknown>> {
   try {
     const url = pathToFileURL(entry);
-    if (cacheBust) url.search = `?v=${String((await stat(entry)).mtimeMs)}`;
+    if (shouldCacheBust) url.search = `?v=${String((await stat(entry)).mtimeMs)}`;
     const mod = (await import(/* @vite-ignore */ url.href)) as { default?: unknown };
     const exported = mod.default;
     if (isRecord(exported) && typeof exported["then"] !== "function") return exported;
     if (exported instanceof Promise) {
-      throw fail("import", `${entry}: default export is a Promise; export the plugin definition itself`, { entry }, undefined, id);
+      throw fail("import", `${entry}: default export is a Promise; export the plugin definition itself`, { details: { entry }, pluginId: id });
     }
   } catch (cause) {
     if (cause instanceof LoomError) throw cause;
-    throw fail("import", `Failed to import ${entry}`, { entry }, cause, id);
+    throw fail("import", `Failed to import ${entry}`, { details: { entry }, cause, pluginId: id });
   }
-  throw fail("import", `${entry} must have an object as its default export`, { entry }, undefined, id);
+  throw fail("import", `${entry} must have an object as its default export`, { details: { entry }, pluginId: id });
 }
 
 function validate(imported: Record<string, unknown>, id: string): PluginDefinition {
@@ -104,8 +112,8 @@ function validate(imported: Record<string, unknown>, id: string): PluginDefiniti
   } catch (cause) {
     // validatePlugin throws a LoomError with details.issues; check instead of trusting it, and
     // attribute anything else (a throwing getter reached during parsing) with the original as cause.
-    const known = cause instanceof LoomError;
-    const issues = known && isRecord(cause.details) ? cause.details["issues"] : undefined;
+    const isKnown = cause instanceof LoomError;
+    const issues = isKnown && isRecord(cause.details) ? cause.details["issues"] : undefined;
     throw new LoomError("MANIFEST_INVALID", cause instanceof Error ? cause.message : `Invalid plugin definition: ${String(cause)}`, {
       pluginIds: [id],
       details: { phase: "validate", ...(issues === undefined ? {} : { issues }) },
@@ -124,9 +132,7 @@ async function loadPackage(dir: string, opts: LoadOptions): Promise<Outcome> {
     throw fail(
       "validate",
       `Plugin id mismatch in ${dir}: package.json has "${loom.id}", definition has "${definition.id}"`,
-      { packageId: loom.id, definitionId: definition.id },
-      undefined,
-      loom.id,
+      { details: { packageId: loom.id, definitionId: definition.id }, pluginId: loom.id },
     );
   }
   return { plugin: { definition, dir, entry } };
@@ -149,7 +155,7 @@ async function listPackageDirs(path: string): Promise<Candidate[]> {
         if ((await stat(join(path, e.name))).isDirectory()) out.push({ name: e.name });
         else out.push({ name: e.name, error: fail("dir", `${join(path, e.name)} is a link to a non-directory`) });
       } catch (cause) {
-        out.push({ name: e.name, error: fail("dir", `${join(path, e.name)} is a broken link`, {}, cause) });
+        out.push({ name: e.name, error: fail("dir", `${join(path, e.name)} is a broken link`, { cause }) });
       }
     }
   }
@@ -172,36 +178,41 @@ export async function loadPluginsFromDirs(
   dirs: readonly { path: string }[],
   opts: LoadOptions,
 ): Promise<LoadResult> {
-  const plugins: LoadedPlugin[] = [];
-  const failures: LoadFailure[] = [];
-  const seen = new Set<string>();
-  for (const group of dirs) {
-    let names: Candidate[];
-    try {
-      names = await listPackageDirs(group.path);
-    } catch (cause) {
-      if (!isEnoent(cause)) {
-        failures.push({ dir: group.path, error: fail("dir", `Cannot read plugin directory ${group.path}`, {}, cause) });
-      }
-      continue;
-    }
-    for (const { name, error: listError } of names) {
-      const dir = join(group.path, name);
-      try {
-        if (listError) throw listError;
-        const real = await realpath(dir);
-        if (seen.has(real)) continue;
-        seen.add(real);
-        const outcome = await loadPackage(dir, opts);
-        if ("plugin" in outcome) plugins.push(outcome.plugin);
-      } catch (error) {
-        const wrapped =
-          error instanceof LoomError
-            ? error
-            : fail("validate", `Unexpected error while loading ${dir}`, {}, error);
-        failures.push({ dir, error: wrapped });
-      }
-    }
+  const run: LoadRun = { opts, seen: new Set(), plugins: [], failures: [] };
+  for (const group of dirs) await loadGroup(group.path, run);
+  return { plugins: run.plugins, failures: run.failures };
+}
+
+/** State of one `loadPluginsFromDirs` call. */
+interface LoadRun {
+  readonly opts: LoadOptions;
+  /** Real paths already loaded, so a package reachable twice loads once. */
+  readonly seen: Set<string>;
+  readonly plugins: LoadedPlugin[];
+  readonly failures: LoadFailure[];
+}
+
+async function loadGroup(path: string, run: LoadRun): Promise<void> {
+  let names: Candidate[];
+  try {
+    names = await listPackageDirs(path);
+  } catch (cause) {
+    if (!isEnoent(cause)) run.failures.push({ dir: path, error: fail("dir", `Cannot read plugin directory ${path}`, { cause }) });
+    return;
   }
-  return { plugins, failures };
+  for (const candidate of names) await loadCandidate(join(path, candidate.name), candidate, run);
+}
+
+async function loadCandidate(dir: string, candidate: Candidate, run: LoadRun): Promise<void> {
+  try {
+    if (candidate.error) throw candidate.error;
+    const real = await realpath(dir);
+    if (run.seen.has(real)) return;
+    run.seen.add(real);
+    const outcome = await loadPackage(dir, run.opts);
+    if ("plugin" in outcome) run.plugins.push(outcome.plugin);
+  } catch (error) {
+    const wrapped = error instanceof LoomError ? error : fail("validate", `Unexpected error while loading ${dir}`, { cause: error });
+    run.failures.push({ dir, error: wrapped });
+  }
 }

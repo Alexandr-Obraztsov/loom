@@ -1,5 +1,5 @@
-import { createHook, createServiceRef } from "@loom/sdk";
 import type { HookRef, ServiceRef } from "@loom/sdk";
+import { createHook, createServiceRef } from "@loom/sdk";
 
 export interface AgentSpec {
   id: string;

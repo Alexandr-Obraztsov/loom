@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
 import { dependentsOf, resolveOrder } from "../../src/core/graph.js";
 import type { PluginDefinition } from "../../src/core/types.js";
@@ -7,10 +8,11 @@ function p(
   id: string,
   dependsOn: Record<string, string> = {},
   optionalDependsOn: Record<string, string> = {},
-  version = "1.0.0",
 ): PluginDefinition {
-  return { id, version, dependsOn, optionalDependsOn };
+  return { id, version: "1.0.0", dependsOn, optionalDependsOn };
 }
+
+const atVersion = (plugin: PluginDefinition, version: string): PluginDefinition => ({ ...plugin, version });
 
 function caught(fn: () => unknown): LoomError {
   try {
@@ -57,14 +59,14 @@ describe("resolveOrder", () => {
   });
 
   it("version outside range throws DEPENDENCY_VERSION with required range and actual version", () => {
-    const err = caught(() => resolveOrder([p("a", { b: "^2.0.0" }), p("b", {}, {}, "1.5.0")]));
+    const err = caught(() => resolveOrder([p("a", { b: "^2.0.0" }), atVersion(p("b"), "1.5.0")]));
     expect(err.code).toBe("DEPENDENCY_VERSION");
     expect(err.pluginIds).toEqual(["a", "b"]);
     expect(err.details).toEqual({ problems: [{ plugin: "a", dependency: "b", required: "^2.0.0", actual: "1.5.0" }] });
   });
 
   it("accepts prerelease versions against ranges (includePrerelease)", () => {
-    expect(() => resolveOrder([p("a", { b: "^1.0.0" }), p("b", {}, {}, "1.1.0-beta.1")])).not.toThrow();
+    expect(() => resolveOrder([p("a", { b: "^1.0.0" }), atVersion(p("b"), "1.1.0-beta.1")])).not.toThrow();
   });
 
   it("MISSING takes priority over VERSION", () => {

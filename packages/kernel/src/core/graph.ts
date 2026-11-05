@@ -101,31 +101,50 @@ function fail(code: "DEPENDENCY_MISSING" | "DEPENDENCY_VERSION", message: string
   throw new LoomError(code, message, { pluginIds: [...involved], details: { problems } });
 }
 
-function checkDependencies(
+interface DependencyScan {
+  readonly missing: Problem[];
+  readonly mismatched: Problem[];
+  readonly skippedOptional: Map<string, string[]>;
+}
+
+/** One dependency record of plugin `id`, required or optional. */
+interface DependencyGroup {
+  readonly id: string;
+  readonly record: Readonly<Record<string, string>> | undefined;
+  readonly isOptional: boolean;
+}
+
+function scanGroup(
+  scan: DependencyScan,
   map: Map<string, PluginDefinition>,
-): Map<string, string[]> {
-  const missing: Problem[] = [];
-  const mismatched: Problem[] = [];
-  const skippedOptional = new Map<string, string[]>();
-  for (const id of [...map.keys()].sort(byId)) {
-    const plugin = map.get(id) as PluginDefinition;
-    const groups = [
-      { record: plugin.dependsOn, optional: false },
-      { record: plugin.optionalDependsOn, optional: true },
-    ];
-    for (const { record, optional } of groups) {
-      for (const dep of sortedKeys(record)) {
-        const range = (record as Record<string, string>)[dep] as string;
-        const target = map.get(dep);
-        if (target === undefined) {
-          if (!optional) missing.push({ plugin: id, dependency: dep, required: range });
-          else push(skippedOptional, id, dep);
-        } else if (!inRange(target.version, range)) {
-          mismatched.push({ plugin: id, dependency: dep, required: range, actual: target.version });
-        }
-      }
+  group: DependencyGroup,
+): void {
+  const { id, record, isOptional } = group;
+  for (const dep of sortedKeys(record)) {
+    const range = (record as Record<string, string>)[dep] as string;
+    const target = map.get(dep);
+    if (target === undefined) {
+      if (isOptional) push(scan.skippedOptional, id, dep);
+      else scan.missing.push({ plugin: id, dependency: dep, required: range });
+    } else if (!inRange(target.version, range)) {
+      scan.mismatched.push({
+        plugin: id,
+        dependency: dep,
+        required: range,
+        actual: target.version,
+      });
     }
   }
+}
+
+function checkDependencies(map: Map<string, PluginDefinition>): Map<string, string[]> {
+  const scan: DependencyScan = { missing: [], mismatched: [], skippedOptional: new Map() };
+  for (const id of [...map.keys()].sort(byId)) {
+    const plugin = map.get(id) as PluginDefinition;
+    scanGroup(scan, map, { id, record: plugin.dependsOn, isOptional: false });
+    scanGroup(scan, map, { id, record: plugin.optionalDependsOn, isOptional: true });
+  }
+  const { missing, mismatched, skippedOptional } = scan;
   if (missing.length > 0) {
     fail("DEPENDENCY_MISSING", describeProblems("Missing required dependencies", missing), missing);
   }

@@ -83,10 +83,10 @@ function entryOf(catalog: readonly CatalogEntry[], id: string): CatalogEntry {
   return entry;
 }
 
-function setEnabled(id: string, enabled: boolean) {
+function setEnabled(id: string, isEnabled: boolean) {
   return (catalog: readonly CatalogEntry[]): CatalogChange => {
     entryOf(catalog, id);
-    return { catalog: catalog.map((e) => (e.def.id === id ? { def: e.def, enabled } : e)) };
+    return { catalog: catalog.map((e) => (e.def.id === id ? { def: e.def, enabled: isEnabled } : e)) };
   };
 }
 
@@ -104,13 +104,13 @@ export function createPluginsService(host: PluginsServiceHost): PluginsService {
     enable: (id) => host.submit(setEnabled(id, true)),
     disable: (id) => host.submit(setEnabled(id, false)),
     reload(def) {
-      let known: boolean;
+      let isKnown: boolean;
       try {
-        known = host.catalog().some((e) => e.def.id === def.id);
+        isKnown = host.catalog().some((e) => e.def.id === def.id);
       } catch (e) {
         return Promise.reject(e instanceof Error ? e : new Error(String(e)));
       }
-      if (!known) return install(def);
+      if (!isKnown) return install(def);
       // Re-checked in the queue: an uninstall queued earlier must not turn this reload into a reinstall.
       return host.submit((catalog) => ({
         catalog: upsert(catalog, { def, enabled: entryOf(catalog, def.id).enabled }),

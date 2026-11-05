@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createServiceRegistry } from "../../src/core/services.js";
 import type { ServiceRef } from "../../src/core/types.js";
 

@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
 import { createMemoryTransportPair, createRpcEndpoint } from "@loom/kernel";
+import { describe, expect, it } from "vitest";
+
 import { createSwitchableEndpoint } from "../src/main/host-endpoint.js";
 
 function pair(): {

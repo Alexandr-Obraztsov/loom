@@ -1,6 +1,8 @@
 /// <reference types="node" />
 import { performance } from "node:perf_hooks";
+
 import { describe, expect, it } from "vitest";
+
 import { createHook, createServiceRef } from "../src/core/definitions.js";
 import { createEventBus } from "../src/core/events.js";
 import { createHookRegistry } from "../src/core/hooks.js";
@@ -74,7 +76,7 @@ describe("performance guards: kernel", () => {
       override: false,
     }));
     const start = performance.now();
-    const result = buildTree(entries, {}, use);
+    const result = buildTree(entries, {}, { use });
     const ms = performance.now() - start;
     expect(result.orphans).toHaveLength(3000);
     expect(ms, `orphan reasons took ${ms.toFixed(1)} ms`).toBeLessThan(300);
@@ -84,10 +86,10 @@ describe("performance guards: kernel", () => {
 describe("performance guards: tree, services, hooks", () => {
   it("rebuild after 1 leaf change calls factory for at most depth + 1 nodes", () => {
     const tree = treeFixture(2000);
-    const first = buildTree(tree.entries, {}, use);
+    const first = buildTree(tree.entries, {}, { use });
     expect(tree.calls()).toBe(2000);
     tree.reset();
-    const second = buildTree(tree.withLeafChanged(), {}, use, first);
+    const second = buildTree(tree.withLeafChanged(), {}, { use, previous: first });
     expect(second.errors).toEqual([]);
     expect(tree.calls()).toBeGreaterThan(0);
     expect(tree.calls()).toBeLessThanOrEqual(tree.leafDepth + 1);
@@ -128,7 +130,7 @@ describe("performance guards: tree, services, hooks", () => {
   it("20-tap async run < 0.05 ms per run over 10 000 runs", async () => {
     const reg = createHookRegistry({ onError: () => undefined });
     for (let t = 0; t < 20; t++)
-      reg.tap(pluginHook, `o${String(t)}`, { priority: t % 3 }, (c, next) => next(c + 1));
+      reg.tap(pluginHook, { owner: `o${String(t)}`, priority: t % 3 }, (c, next) => next(c + 1));
     const fallback = (c: number): Promise<number> => Promise.resolve(c);
     expect(await reg.run(pluginHook, 0, fallback)).toBe(20);
     const ms = await measure(10_000, 5, () => reg.run(pluginHook, 0, fallback));
@@ -158,7 +160,7 @@ describe("performance guards: hooks in setup", () => {
   }) => {
     const taps = 2000;
     const fill = (reg: ReturnType<typeof createHookRegistry>, i: number): void => {
-      reg.tap(syncHook, `o${String(i)}`, { priority: i % 5 }, (c) => c); // answers without next(): the run costs ordering, not the chain
+      reg.tap(syncHook, { owner: `o${String(i)}`, priority: i % 5 }, (c) => c); // answers without next(): the run costs ordering, not the chain
     };
     const fallback = (c: number): number => c;
     const batchMode = (): number => {

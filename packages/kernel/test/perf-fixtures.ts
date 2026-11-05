@@ -1,5 +1,6 @@
 /// <reference types="node" />
 import { performance } from "node:perf_hooks";
+
 import { createHook, createServiceRef } from "../src/core/definitions.js";
 import type { TreeEntry } from "../src/core/tree-index.js";
 import type { ExtensionDefinition, HookRef, PluginDefinition, ServiceRef } from "../src/core/types.js";

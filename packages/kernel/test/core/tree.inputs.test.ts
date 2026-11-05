@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+
 import { buildTree } from "../../src/core/tree.js";
 import type { ResolvedNode } from "../../src/core/types.js";
 import type { Ctx } from "./tree-helpers.js";
@@ -13,7 +14,7 @@ describe("buildTree input rules", () => {
       e("a", ext("x", { attachTo: at("app", "one") })),
       e("b", ext("y", { attachTo: at("app", "one") })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.root?.errors[0]?.code).toBe("EXTENSION_CONFLICT");
     expect(r.root?.errors[0]?.pluginIds).toEqual(expect.arrayContaining(["p", "a", "b"]));
     expect(r.root?.errors[0]?.message).toContain("x");
@@ -25,7 +26,7 @@ describe("buildTree input rules", () => {
 
   it("required input with no healthy child errors the parent", () => {
     const entries = [e("p", ext("app", { inputs: { one: { required: true } } }))];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.root?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
     expect(r.root?.errors[0]?.pluginIds).toEqual(["p"]);
     expect(r.root?.value).toBeUndefined();
@@ -36,7 +37,7 @@ describe("buildTree input rules", () => {
       e("p", ext("app", { inputs: { s: { multiple: true, required: true, schema: z.number() } } })),
       e("q", ext("bad", { attachTo: at("app", "s") })),
     ];
-    expect(buildTree(entries, {}, use).root?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
+    expect(buildTree(entries, {}, { use }).root?.errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
 
   it("schema failure marks the child EXTENSION_INPUT_MISMATCH and excludes it from the factory inputs but not from node.inputs", () => {
@@ -46,7 +47,7 @@ describe("buildTree input rules", () => {
       e("q", ext("good", { attachTo: at("app", "s"), factory: () => 5 })),
       e("q", ext("bad", { attachTo: at("app", "s"), order: 1, factory: () => "str" })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(seen.map((n) => n.id)).toEqual(["good"]);
     const all = r.root?.inputs["s"] as ResolvedNode[];
     expect(all.map((n) => n.id)).toEqual(["good", "bad"]);
@@ -64,7 +65,7 @@ describe("buildTree input rules", () => {
       e("p", ext("app", { inputs: { one: { schema: z.number() } }, factory: (c) => { seen = c; return 1; } })),
       e("q", ext("c", { attachTo: at("app", "one") })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(seen?.inputs["one"]).toBeUndefined();
     expect((r.root?.inputs["one"] as ResolvedNode).errors[0]?.code).toBe("EXTENSION_INPUT_MISMATCH");
   });
@@ -80,7 +81,7 @@ describe("buildTree failures", () => {
       e("q", ext("bad", { attachTo: at("app", "slot"), order: 1, factory: () => { throw boom; } })),
       e("q", ext("ok2", { attachTo: at("app", "slot"), order: 2 })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.root?.value).toBe("parent");
     expect(r.root?.errors).toEqual([]);
     const kids = r.root?.inputs["slot"] as ResolvedNode[];
@@ -100,7 +101,7 @@ describe("buildTree failures", () => {
       e("q", ext("c3", { attachTo: at("app", "one") })),
       e("q", ext("orph", { attachTo: at("zz", "s") })),
     ];
-    const r = buildTree(entries, {}, use);
+    const r = buildTree(entries, {}, { use });
     expect(r.errors.map((x) => x.code)).toEqual([
       "EXTENSION_CONFLICT",
       "EXTENSION_FACTORY_FAILED",

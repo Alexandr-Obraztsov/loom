@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createServiceRef } from "../../src/core/definitions.js";
 import { createKernel } from "../../src/core/kernel.js";
 import { plugin, rejection } from "./kernel-helpers.js";

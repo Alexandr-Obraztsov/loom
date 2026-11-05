@@ -1,10 +1,12 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+
 import { createKernel } from "@loom/kernel";
-import { definePlugin } from "@loom/sdk";
-import { AgentRegistryRef } from "@loom/plugin-acp";
 import type { AgentSpec } from "@loom/plugin-acp";
+import { AgentRegistryRef } from "@loom/plugin-acp";
+import { definePlugin } from "@loom/sdk";
+import { describe, expect, it } from "vitest";
+
 import plugin from "../src/main.js";
 
 describe("claude-code plugin", () => {

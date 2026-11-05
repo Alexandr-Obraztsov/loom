@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import type { ReactNode, Ref, UIEvent } from "react";
+import type { Sessions,SessionSnapshot } from "@loom/plugin-acp";
 import { SessionsRef } from "@loom/plugin-acp";
-import type { SessionSnapshot, Sessions } from "@loom/plugin-acp";
-import { HostRef, createServiceRef } from "@loom/sdk";
-import type { ResolvedNode, ServiceRef } from "@loom/sdk";
 import { Render, useHookRunner, useService } from "@loom/react";
-import { RenderItemHook } from "./api.js";
+import type { ResolvedNode, ServiceRef } from "@loom/sdk";
+import { createServiceRef,HostRef } from "@loom/sdk";
+import type { ReactNode, Ref, UIEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+
 import type { ChatSession, RenderItemContext } from "./api.js";
+import { RenderItemHook } from "./api.js";
 import { renderDefaultItem } from "./items.js";
 
 /** Внутренняя ручка экрана чата: публичный ChatSession плюс запись снимков. */
@@ -147,7 +148,7 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
   const host = useService(HostRef);
   const driver = useService(ChatSessionDriverRef);
   const runItem = useHookRunner(RenderItemHook);
-  const [offline, setOffline] = useState(false);
+  const [isOffline, setOffline] = useState(false);
   const [fatal, setFatal] = useState<string | undefined>(undefined);
   const subscribe = useCallback((notify: () => void) => driver.subscribe(notify), [driver]);
   const snapshot = useSyncExternalStore(subscribe, () => driver.snapshot());
@@ -160,19 +161,19 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
   // выйдет по флагу, когда ответ придёт. В StrictMode эффект монтируется дважды —
   // первый цикл выходит на ближайшей проверке, ensure идемпотентен (сессия на окно одна).
   useEffect(() => {
-    let disposed = false;
+    let isDisposed = false;
     void runSession({
       sessions,
       driver,
       projectDir: host.projectDir,
-      isDisposed: () => disposed,
+      isDisposed: () => isDisposed,
       onOffline: setOffline,
     }).catch((e: unknown) => {
-      if (disposed) return;
+      if (isDisposed) return;
       setFatal(e instanceof Error ? e.message : String(e));
     });
     return () => {
-      disposed = true;
+      isDisposed = true;
     };
   }, []);
 
@@ -187,7 +188,7 @@ export function ChatView(props: { node: ResolvedNode }): ReactNode {
 
   return (
     <section aria-label="Чат">
-      {offline ? <div role="alert">Не удалось получить обновления</div> : null}
+      {isOffline ? <div role="alert">Не удалось получить обновления</div> : null}
       <div onScroll={onScroll} data-timeline="">
         {fatal === undefined && snapshot !== undefined ? (
           <TimelineItems snapshot={snapshot} runItem={runItem} endRef={endRef} />

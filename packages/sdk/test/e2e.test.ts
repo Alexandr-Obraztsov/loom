@@ -1,7 +1,8 @@
 import { createKernel } from "@loom/kernel";
 import { describe, expect, it } from "vitest";
-import { attach, createExtension, createHook, createServiceRef, definePlugin } from "../src/index.js";
+
 import type { ResolvedNode } from "../src/index.js";
+import { attach, createExtension, createHook, createServiceRef, definePlugin } from "../src/index.js";
 
 interface Store {
   submit(text: string): Promise<string>;

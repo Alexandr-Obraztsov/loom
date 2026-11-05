@@ -1,14 +1,15 @@
-import { act, cleanup, fireEvent, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { definePlugin } from "@loom/kernel";
 import type { PluginDefinition } from "@loom/kernel";
-import { attach } from "@loom/sdk";
-import type { ReactNode } from "react";
+import { definePlugin } from "@loom/kernel";
 import type { SessionItem } from "@loom/plugin-acp";
+import { attach } from "@loom/sdk";
+import { act, cleanup, fireEvent, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+
 import { RenderItemHook } from "../src/api.js";
 import { isPinned } from "../src/timeline.js";
-import { FakeSessions, agent, thought, tool, user } from "./fixtures.js";
 import { applyUpdate, bootChat, disposeKernels, renderApp } from "./boot.js";
+import { agent, FakeSessions, thought, tool, user } from "./fixtures.js";
 
 afterEach(async () => {
   cleanup();
@@ -134,7 +135,7 @@ describe("chat: лента", () => {
       ...s,
       items: [
         ...s.items,
-        tool("t1", "Чтение файла", "in_progress", "src/index.ts"),
+        { ...tool("t1", "Чтение файла", "in_progress"), detail: "src/index.ts" },
         tool("t2", "Поиск в файлах", "pending"),
         thought("h1", "изучаю файл"),
       ],

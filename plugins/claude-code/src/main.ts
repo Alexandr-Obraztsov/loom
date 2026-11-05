@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
-import { definePlugin } from "@loom/sdk";
-import type { PluginDefinition } from "@loom/sdk";
+
 import { AgentRegistryRef } from "@loom/plugin-acp";
+import type { PluginDefinition } from "@loom/sdk";
+import { definePlugin } from "@loom/sdk";
 
 const require = createRequire(import.meta.url);
 

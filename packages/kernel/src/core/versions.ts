@@ -11,13 +11,13 @@ function memo<A extends string[]>(fn: (...args: A) => boolean): (...args: A) => 
   const cache = new Map<string, boolean>();
   return (...args) => {
     const key = args.join("\u0000");
-    let hit = cache.get(key);
-    if (hit === undefined) {
+    let isHit = cache.get(key);
+    if (isHit === undefined) {
       if (cache.size >= LIMIT) cache.clear();
-      hit = fn(...args);
-      cache.set(key, hit);
+      isHit = fn(...args);
+      cache.set(key, isHit);
     }
-    return hit;
+    return isHit;
   };
 }
 

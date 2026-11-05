@@ -1,4 +1,5 @@
 import type { RequestPermissionRequest, RequestPermissionResponse } from "@agentclientprotocol/sdk";
+
 import type { ToolCallHookContext } from "../api.js";
 import type { SessionLog } from "./updates.js";
 

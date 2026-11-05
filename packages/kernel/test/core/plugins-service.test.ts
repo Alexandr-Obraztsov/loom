@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createKernel } from "../../src/core/kernel.js";
-import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
+import { PluginsRef } from "../../src/core/plugins-service.js";
 import { ids, must, plugin, rejection } from "./kernel-helpers.js";
 
 async function withService() {

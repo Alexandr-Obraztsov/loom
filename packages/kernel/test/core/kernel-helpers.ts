@@ -20,7 +20,7 @@ export interface Spec extends Partial<Omit<PluginDefinition, "id" | "setup">> {
  * counts its setups in `ctx.state.n` and (by default) provides `svc.<id>`.
  */
 export function plugin(log: string[], id: string, spec: Spec = {}): PluginDefinition {
-  const { deps = [], optional = [], provides = true, setup, version = "1.0.0", ...rest } = spec;
+  const { deps = [], optional = [], provides: isProviding = true, setup, version = "1.0.0", ...rest } = spec;
   const def: PluginDefinition = {
     id,
     version,
@@ -29,7 +29,7 @@ export function plugin(log: string[], id: string, spec: Spec = {}): PluginDefini
       log.push(`setup:${id}@${version}`);
       ctx.state.n = ((ctx.state.n as number | undefined) ?? 0) + 1;
       ctx.onDispose(() => void log.push(`dispose:${id}@${version}`));
-      if (provides) ctx.provide(refOf(id), { tag: () => `${id}@${version}` });
+      if (isProviding) ctx.provide(refOf(id), { tag: () => `${id}@${version}` });
       await setup?.(ctx);
     },
   };

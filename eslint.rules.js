@@ -1,5 +1,8 @@
 import { builtinModules } from "node:module";
+
 import boundaries from "eslint-plugin-boundaries";
+import simpleImportSort from "eslint-plugin-simple-import-sort";
+import sonarjs from "eslint-plugin-sonarjs";
 
 const BARE_BUILTINS = builtinModules.filter((m) => !m.startsWith("_"));
 const BUILTIN_PATHS = [
@@ -29,6 +32,33 @@ export const exportRules = {
       },
     },
   ],
+};
+
+const BOOLEAN_PREFIXES = ["is", "has", "can", "should", "was", "did"];
+
+/** Readability rules shared by the real lint run and the lint-fixtures regression check. */
+export const readabilityConfig = {
+  plugins: { sonarjs, "simple-import-sort": simpleImportSort },
+  rules: {
+    "sonarjs/cognitive-complexity": ["error", 15],
+    "max-depth": ["error", 4],
+    "max-params": ["error", 3],
+    "@typescript-eslint/switch-exhaustiveness-check": "error",
+    "@typescript-eslint/naming-convention": [
+      "error",
+      {
+        // Data-contract keys (wire messages, manifests, plugin-facing types: `ok`, `multiple`, `enabled`)
+        // and public accessors are not renamed: that would change the protocol and the plugin API.
+        selector: ["variable", "parameter", "classProperty", "parameterProperty"],
+        types: ["boolean"],
+        format: ["PascalCase"],
+        prefix: BOOLEAN_PREFIXES,
+      },
+      { selector: "interface", format: null, custom: { regex: "^I[A-Z]", match: false } },
+    ],
+    "simple-import-sort/imports": "error",
+    "simple-import-sort/exports": "error",
+  },
 };
 
 const KERNEL_ELEMENTS = ["kernel-core", "kernel-rpc", "kernel-node", "kernel-other"];

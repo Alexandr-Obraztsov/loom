@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+
 import { attach, createExtension, createHook, createServiceRef, definePlugin } from "../../src/core/definitions.js";
 import { LoomError } from "../../src/core/errors.js";
-import { validatePlugin } from "../../src/core/manifest.js";
 import type { ManifestIssue } from "../../src/core/manifest.js";
+import { validatePlugin } from "../../src/core/manifest.js";
 
 function issuesOf(def: unknown): readonly ManifestIssue[] {
   try {

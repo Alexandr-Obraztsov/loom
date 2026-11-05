@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
+
 import { createServiceRef } from "../../src/core/definitions.js";
 import { createKernel } from "../../src/core/kernel.js";
 import type { PluginDefinition } from "../../src/core/types.js";
-import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { RpcEndpoint } from "../../src/rpc/endpoint.js";
-import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
+import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { MemoryTransport } from "../../src/rpc/memory-transport.js";
+import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import type { RpcMessage } from "../../src/rpc/protocol.js";
 import { exposeServices, provideRemoteServices, remoteServicesPlugin } from "../../src/rpc/remote-services.js";
 import { rejection } from "../core/kernel-helpers.js";
@@ -119,7 +120,7 @@ describe("provideRemoteServices", () => {
       version: "1.0.0",
       dependsOn: { host: "*" },
       setup(ctx) {
-        provideRemoteServices(ctx, ctx.use(EndpointRef).endpoint, [GreeterRef]);
+        provideRemoteServices(ctx, { endpoint: ctx.use(EndpointRef).endpoint, refs: [GreeterRef] });
       },
     };
     const win = createKernel();
@@ -158,14 +159,14 @@ describe("class instances", () => {
       return "base";
     }
   }
-  let getterInvoked = false;
+  let wasGetterInvoked = false;
   class Counter extends Base {
     n = 0;
     inc(): number {
       return ++this.n;
     }
     get secret(): string {
-      getterInvoked = true;
+      wasGetterInvoked = true;
       return "secret";
     }
   }
@@ -203,11 +204,11 @@ describe("class instances", () => {
 
   it("getter on the prototype is not invoked and is rejected", async () => {
     const proxy = await counterProxy();
-    getterInvoked = false;
+    wasGetterInvoked = false;
     const error = await rejection(proxy.secret?.() as Promise<unknown>);
     expect(error.code).toBe("RPC_REMOTE_ERROR");
     expect(error.message).toMatch(/has no method "secret"/);
-    expect(getterInvoked).toBe(false);
+    expect(wasGetterInvoked).toBe(false);
     expect((await rejection(proxy.__proto__?.() as Promise<unknown>)).code).toBe(
       "RPC_REMOTE_ERROR",
     );

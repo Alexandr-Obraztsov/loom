@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process";
 import { Readable, Writable } from "node:stream";
-import { ndJsonStream } from "@agentclientprotocol/sdk";
+
 import type { ClientApp, ClientConnection, Stream } from "@agentclientprotocol/sdk";
+import { ndJsonStream } from "@agentclientprotocol/sdk";
+
 import type { AgentSpec } from "../api.js";
 
 export const STDERR_TAIL_BYTES = 4096;
@@ -41,12 +43,12 @@ export function spawnAgent(spec: AgentSpec, cwd: string): AgentProcess {
   // a dead child makes writes fail with EPIPE; the exit is reported through `exited`
   child.stdin.on("error", () => undefined);
 
-  let done = false;
+  let isDone = false;
   const exited = new Promise<ExitInfo>((resolve) => {
     let drain: ReturnType<typeof setTimeout> | undefined;
     const finish = (info: ExitInfo): void => {
-      if (done) return;
-      done = true;
+      if (isDone) return;
+      isDone = true;
       clearTimeout(drain);
       resolve(info);
     };
@@ -81,7 +83,7 @@ export function spawnAgent(spec: AgentSpec, cwd: string): AgentProcess {
     exited,
     stderrTail: () => tail.toString("utf8"),
     async kill() {
-      if (done) {
+      if (isDone) {
         signalGroup("SIGKILL"); // leftovers of the tree
         return;
       }

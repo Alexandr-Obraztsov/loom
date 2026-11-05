@@ -1,9 +1,9 @@
 import { LoomError } from "../core/errors.js";
-import { cancelled, deserializeError, describe, disconnected, isRpcMessage, remoteError, serializeError } from "./protocol.js";
-import { createAbortController, microtask } from "./platform.js";
-import { ProtocolSinks } from "./protocol-sinks.js";
 import type { AbortControllerLike, AbortSignalLike } from "./platform.js";
+import { createAbortController, microtask } from "./platform.js";
 import type { RpcMessage, TapMessage, Transport } from "./protocol.js";
+import { cancelled, describe, deserializeError, disconnected, isRpcMessage, remoteError, serializeError } from "./protocol.js";
+import { ProtocolSinks } from "./protocol-sinks.js";
 
 export type RpcHandler = (method: string, args: unknown[], signal: AbortSignalLike) => Promise<unknown>;
 
@@ -30,7 +30,7 @@ export interface RpcEndpointOptions {
 
 /** Low-level access for remote hooks: tap-* messages, a shared id counter and close notification. */
 export interface RpcChannel {
-  readonly closed: boolean;
+  readonly isClosed: boolean;
   nextId(): number;
   /** Sends unless closed; throws what the transport throws. */
   send(msg: RpcMessage): void;
@@ -62,7 +62,7 @@ export function channelOf(endpoint: RpcEndpoint): RpcChannel {
 }
 
 class Endpoint implements RpcEndpoint, RpcChannel {
-  closed = false;
+  isClosed = false;
   private seq = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly handlers = new Map<string, RpcHandler>();
@@ -86,8 +86,9 @@ class Endpoint implements RpcEndpoint, RpcChannel {
     ];
   }
 
+  // eslint-disable-next-line max-params -- implements the four-slot RpcEndpoint.call that every caller uses
   call(target: string, method: string, args: unknown[], signal?: AbortSignalLike): Promise<unknown> {
-    if (this.closed) return Promise.reject(disconnected(`Call to "${target}.${method}" failed`));
+    if (this.isClosed) return Promise.reject(disconnected(`Call to "${target}.${method}" failed`));
     if (signal?.aborted) return Promise.reject(cancelled(target, method));
     const id = this.nextId();
     return new Promise<unknown>((resolve, reject) => {
@@ -134,7 +135,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   close(): void {
-    if (this.closed) return;
+    if (this.isClosed) return;
     try {
       this.send({ type: "bye" });
     } catch {
@@ -148,7 +149,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   send(msg: RpcMessage): void {
-    if (!this.closed) this.transport.send(msg);
+    if (!this.isClosed) this.transport.send(msg);
   }
 
   sendReply(msg: RpcMessage): void {
@@ -165,7 +166,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   onClose(cb: () => void): () => void {
-    if (this.closed) {
+    if (this.isClosed) {
       cb();
       return () => undefined;
     }
@@ -200,7 +201,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   private receive(msg: RpcMessage): void {
-    if (this.closed) return;
+    if (this.isClosed) return;
     switch (msg.type) {
       case "bye":
         this.shutdown();
@@ -218,7 +219,9 @@ class Endpoint implements RpcEndpoint, RpcChannel {
         this.incoming.get(msg.id)?.abort();
         this.incoming.delete(msg.id);
         return;
-      default:
+      case "tap-invoke":
+      case "tap-next":
+      case "tap-result":
         for (const cb of [...this.tapListeners]) cb(msg);
     }
   }
@@ -266,8 +269,8 @@ class Endpoint implements RpcEndpoint, RpcChannel {
   }
 
   private shutdown(): void {
-    if (this.closed) return;
-    this.closed = true;
+    if (this.isClosed) return;
+    this.isClosed = true;
     for (const off of this.off) off();
     for (const p of [...this.pending.values()]) p.reject(disconnected("Call failed"));
     this.pending.clear();
@@ -283,7 +286,7 @@ class Endpoint implements RpcEndpoint, RpcChannel {
 export function createRpcEndpoint(transport: Transport, options: RpcEndpointOptions = {}): RpcEndpoint {
   const endpoint = new Endpoint(transport, options);
   const facade: RpcEndpoint = {
-    call: (target, method, args, signal) => endpoint.call(target, method, args, signal),
+    call: (...args) => endpoint.call(...args),
     handle: (target, impl) => endpoint.handle(target, impl),
     close: () => {
       endpoint.close();

@@ -1,7 +1,8 @@
 // Regression check: every architectural lint rule must keep firing on its fixture.
-import { ESLint } from "eslint";
 import path from "node:path";
 import process from "node:process";
+
+import { ESLint } from "eslint";
 
 const root = path.resolve(import.meta.dirname, "lint-fixtures");
 const k = "packages/kernel/src";
@@ -16,6 +17,7 @@ const BOUNDARIES = "boundaries/dependencies";
 const IMPORTS = "no-restricted-imports";
 const EXPORTS = "no-restricted-exports";
 const GLOBALS = "no-restricted-globals";
+const rd = "readability";
 
 /** @type {Record<string, string | string[] | null>} fixture file -> the expected rule(s), sorted alphabetically when several (null = clean) */
 const expected = {
@@ -79,12 +81,24 @@ const expected = {
   // app tests may use public entries, not kernel internals
   ["apps/desk/test/ok.test.ts"]: null,
   ["apps/desk/test/kernel-internal.test.ts"]: BOUNDARIES,
+  // readability rules
+  [`${rd}/a.ts`]: null,
+  [`${rd}/b.ts`]: null,
+  [`${rd}/ok.ts`]: null,
+  [`${rd}/cognitive-complexity.ts`]: "sonarjs/cognitive-complexity",
+  [`${rd}/max-depth.ts`]: "max-depth",
+  [`${rd}/max-params.ts`]: "max-params",
+  [`${rd}/switch-exhaustiveness.ts`]: "@typescript-eslint/switch-exhaustiveness-check",
+  [`${rd}/naming-boolean.ts`]: "@typescript-eslint/naming-convention",
+  [`${rd}/naming-interface.ts`]: "@typescript-eslint/naming-convention",
+  [`${rd}/sort-imports.ts`]: "simple-import-sort/imports",
+  [`${rd}/sort-exports.ts`]: "simple-import-sort/exports",
 };
 
 // eslint-plugin-boundaries resolves element patterns against process.cwd().
 process.chdir(root);
 const eslint = new ESLint({ cwd: root });
-const results = await eslint.lintFiles(["packages", "plugins", "apps"]);
+const results = await eslint.lintFiles(["packages", "plugins", "apps", rd]);
 const failures = [];
 const seen = new Set();
 for (const result of results) {

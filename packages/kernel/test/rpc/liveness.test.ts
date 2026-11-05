@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { createHook } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
-import { createKernel } from "../../src/core/kernel.js";
 import type { Kernel } from "../../src/core/kernel.js";
+import { createKernel } from "../../src/core/kernel.js";
 import type { PluginDefinition } from "../../src/core/types.js";
-import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { RpcEndpoint } from "../../src/rpc/endpoint.js";
-import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
+import { createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { MemoryTransport } from "../../src/rpc/memory-transport.js";
+import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import { startTimer } from "../../src/rpc/platform.js";
 import { exposeHooks } from "../../src/rpc/remote-hooks.js";
 import { tapRemote } from "../../src/rpc/remote-taps.js";
@@ -44,7 +45,7 @@ function remoteTap(eb: RpcEndpoint, fn: (c: { n: number }, next: (c: { n: number
     id: "win-tap",
     version: "1.0.0",
     setup(ctx) {
-      tapRemote(ctx, eb, H, timeoutMs === undefined ? {} : { timeoutMs }, fn);
+      tapRemote(ctx, H, { endpoint: eb, ...timeoutMs === undefined ? {} : { timeoutMs }, handler: fn });
     },
   };
 }

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
+
 import { createHook, createServiceRef } from "../../src/core/definitions.js";
 import type { LoomError } from "../../src/core/errors.js";
 import { createKernel } from "../../src/core/kernel.js";
-import { channelOf, createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import type { RpcEndpointOptions } from "../../src/rpc/endpoint.js";
+import { channelOf, createRpcEndpoint } from "../../src/rpc/endpoint.js";
 import { createMemoryTransportPair } from "../../src/rpc/memory-transport.js";
 import type { RpcMessage, Transport } from "../../src/rpc/protocol.js";
 import { exposeHooks } from "../../src/rpc/remote-hooks.js";

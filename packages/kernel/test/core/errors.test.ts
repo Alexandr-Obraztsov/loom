@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
 
 describe("LoomError", () => {

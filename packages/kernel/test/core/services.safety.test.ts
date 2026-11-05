@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { LoomError } from "../../src/core/errors.js";
 import { createServiceRegistry } from "../../src/core/services.js";
 import type { ServiceRef } from "../../src/core/types.js";

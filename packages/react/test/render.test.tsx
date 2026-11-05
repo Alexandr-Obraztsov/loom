@@ -1,9 +1,10 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import { createKernel, createServiceRef, definePlugin } from "@loom/kernel";
 import type { ExtensionDefinition, Kernel, PluginDefinition, ResolvedNode } from "@loom/kernel";
-import type { ComponentType, ReactNode } from "react";
+import { createKernel, createServiceRef, definePlugin } from "@loom/kernel";
 import { createHook } from "@loom/kernel";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import type { ComponentType, ReactNode } from "react";
+import { afterEach, describe, expect, it } from "vitest";
+
 import {
   KernelProvider,
   Render,
@@ -134,9 +135,9 @@ describe("@loom/react recovery", () => {
   });
 
   it("a failed boundary recovers when the tree changes", async () => {
-    let broken = true;
+    let isBroken = true;
     const Flaky: View = () => {
-      if (broken) throw new Error("flaky");
+      if (isBroken) throw new Error("flaky");
       return <p>fine</p>;
     };
     const mk = (version: string): PluginDefinition => ({
@@ -152,7 +153,7 @@ describe("@loom/react recovery", () => {
       console.error = original;
     }
     expect(screen.getByRole("alert")).toBeTruthy();
-    broken = false;
+    isBroken = false;
     await act(async () => {
       await kernel.reconcile([mk("1.0.1")]);
     });

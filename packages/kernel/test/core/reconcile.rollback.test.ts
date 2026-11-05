@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { createHook, createServiceRef } from "../../src/core/definitions.js";
 import { createKernel } from "../../src/core/kernel.js";
 import { KernelRuntime } from "../../src/core/kernel-runtime.js";
-import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginsService } from "../../src/core/plugins-service.js";
+import { PluginsRef } from "../../src/core/plugins-service.js";
 import type { PluginDefinition } from "../../src/core/types.js";
 import { must, plugin, rejection } from "./kernel-helpers.js";
 

@@ -273,9 +273,14 @@ export interface PluginsService {
 }
 
 // @public
-export function provideRemoteServices(ctx: PluginContext, endpoint: RpcEndpoint, refs: readonly ServiceRef<object>[], options?: {
+export function provideRemoteServices(ctx: PluginContext, options: ProvideRemoteServicesOptions): void;
+
+// @public
+export interface ProvideRemoteServicesOptions {
     readonly callTimeoutMs?: number;
-}): void;
+    readonly endpoint: RpcEndpoint;
+    readonly refs: readonly ServiceRef<object>[];
+}
 
 // @public (undocumented)
 export interface ReconcileDiff {
@@ -289,20 +294,22 @@ export interface ReconcileDiff {
     requiresRestart: string[];
 }
 
-// @public (undocumented)
-export interface RemoteServicesOptions {
-    readonly callTimeoutMs?: number;
-    // (undocumented)
-    readonly endpoint: RpcEndpoint;
+// @public
+export interface RemoteServicesOptions extends ProvideRemoteServicesOptions {
     readonly id: string;
-    // (undocumented)
-    readonly refs: readonly ServiceRef<object>[];
     // (undocumented)
     readonly version?: string;
 }
 
 // @public
 export function remoteServicesPlugin(options: RemoteServicesOptions): PluginDefinition;
+
+// @public
+export interface RemoteTapOptions<C, R> extends TapOptions<C> {
+    readonly endpoint: RpcEndpoint;
+    readonly handler: (c: C, next: Next<C, R>) => R;
+    readonly timeoutMs?: number;
+}
 
 // @public (undocumented)
 export interface ResolvedNode<O = unknown> {
@@ -405,9 +412,7 @@ export interface TapOptions<C> {
 }
 
 // @public
-export function tapRemote<C, R>(ctx: PluginContext, endpoint: RpcEndpoint, hook: HookRef<C, R>, opts: TapOptions<C> & {
-    timeoutMs?: number;
-}, fn: (c: C, next: Next<C, R>) => R): void;
+export function tapRemote<C, R>(ctx: PluginContext, hook: HookRef<C, R>, options: RemoteTapOptions<C, R>): void;
 
 // @public (undocumented)
 export interface Transport {

@@ -1,3 +1,4 @@
+import type { Decorator, Impl, RefState } from "./service-helpers.js";
 import {
   changedRefs,
   conflictError,
@@ -11,9 +12,8 @@ import {
   reorderAll,
   stripOwner,
 } from "./service-helpers.js";
-import type { Decorator, Impl, RefState } from "./service-helpers.js";
-import { proxyFor } from "./service-proxy.js";
 import type { ProxyCache } from "./service-proxy.js";
+import { proxyFor } from "./service-proxy.js";
 import type { ServiceRef } from "./types.js";
 
 export interface ServiceRegistry {
@@ -110,6 +110,16 @@ function dropConsumer(b: Books, consumer: string): RefState[] {
   return touched;
 }
 
+/** One of the lists of registrations on a ref; `what` names a single-slot kind (provider, override), absent for decorators. */
+interface Slot<E> {
+  readonly list: (s: RefState) => E[];
+  readonly what?: string;
+}
+
+const PROVIDER: Slot<Impl> = { list: (s) => s.provides, what: "provider" };
+const OVERRIDE: Slot<Impl> = { list: (s) => s.overrides, what: "override" };
+const DECORATOR: Slot<Decorator> = { list: (s) => s.decorators };
+
 export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegistry {
   const { winners = {}, kernelOwner, onError, rankOf } = opts;
   let seq = 0;
@@ -147,10 +157,10 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
   }
 
   /** Adds `entry` to one of the ref's lists; `what` names the single-slot kind (provider, override), absent for decorators. */
-  function register<E extends Impl | Decorator>(ref: ServiceRef<unknown>, list: (s: RefState) => E[], entry: E, what?: string): () => void {
+  function register<E extends Impl | Decorator>(ref: ServiceRef<unknown>, { list, what }: Slot<E>, entry: E): () => void {
     const s = get(ref.id);
     const existing = list(s)[0];
-    if (what && existing && winners[ref.id] === undefined) throw conflictError(ref.id, existing.owner, entry.owner, what);
+    if (what && existing && winners[ref.id] === undefined) throw conflictError(ref.id, { existing: existing.owner, incoming: entry.owner }, what);
     index(b.registered, entry.owner, s);
     change([s], entry.owner, () => {
       list(s).push(entry);
@@ -174,13 +184,13 @@ export function createServiceRegistry(opts: ServiceRegistryOptions): ServiceRegi
   }
 
   return {
-    provide: (ref, impl, owner) => register(ref, (s) => s.provides, { owner, impl, seq: seq++ }, "provider"),
-    override: (ref, impl, owner) => register(ref, (s) => s.overrides, { owner, impl, seq: seq++ }, "override"),
+    provide: (ref, impl, owner) => register(ref, PROVIDER, { owner, impl, seq: seq++ }),
+    override: (ref, impl, owner) => register(ref, OVERRIDE, { owner, impl, seq: seq++ }),
     decorate: (ref, fn, owner) =>
-      register(ref, (s) => s.decorators, { owner, fn: fn as unknown as (prev: object) => object, seq: seq++ }),
+      register(ref, DECORATOR, { owner, fn: fn as unknown as (prev: object) => object, seq: seq++ }),
     use<T extends object>(ref: ServiceRef<T>, consumer: string, allowed: ReadonlySet<string>): T {
       index(b.consumed, consumer, ref.id);
-      return proxyFor(b.proxies, get(ref.id), winners, { consumer, allowed, kernelOwner }) as T;
+      return proxyFor(b.proxies, get(ref.id), { winners, consumer, allowed, kernelOwner }) as T;
     },
     has: (ref) => activeOf(ref) !== undefined,
     providerOf: (ref) => activeOf(ref)?.owner,

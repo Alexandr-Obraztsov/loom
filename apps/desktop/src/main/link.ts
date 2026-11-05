@@ -1,7 +1,8 @@
-import { createRpcEndpoint, exposeServices } from "@loom/kernel";
 import type { Kernel, RpcEndpoint } from "@loom/kernel";
+import { createRpcEndpoint, exposeServices } from "@loom/kernel";
 import { AgentRegistryRef, SessionsRef } from "@loom/plugin-acp";
 import type { MessageChannelMain, MessagePortMain } from "electron";
+
 import type { SwitchableEndpoint } from "./host-endpoint.js";
 import { createMainTransport } from "./transport.js";
 import type { TurnGuard } from "./turn-guard.js";

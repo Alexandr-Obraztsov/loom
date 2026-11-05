@@ -1,10 +1,12 @@
 import js from "@eslint/js";
 import { defineConfig } from "eslint/config";
 import tseslint from "typescript-eslint";
+
 import {
   boundariesConfig,
   exportRules,
   platformNeutralConfigs,
+  readabilityConfig,
   workspaceConfigs,
 } from "./eslint.rules.js";
 
@@ -46,9 +48,15 @@ export default defineConfig(
     files: ["plugins/*/src/{main,renderer}.{ts,tsx}"],
     rules: { "no-restricted-exports": "off" },
   },
+  readabilityConfig,
   {
     files: ["**/*.cjs"],
     ...tseslint.configs.disableTypeChecked,
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      "@typescript-eslint/switch-exhaustiveness-check": "off",
+      "@typescript-eslint/naming-convention": "off",
+    },
   },
   {
     files: ["**/*.cjs"],
